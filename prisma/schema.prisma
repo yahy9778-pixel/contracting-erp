@@ -1,0 +1,232 @@
+// نموذج بيانات المرحلة الأولى (MVP)
+// للتجربة نستخدم SQLite، وللتشغيل الفعلي غيّر provider إلى "postgresql"
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ───────── التأسيس ─────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  // OWNER | PROJECT_MANAGER | SITE_ENGINEER | CONTRACTS | FINANCE | PLANNING
+  role         String
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  memberships     ProjectMember[]
+  reportsCreated  DailyReport[]   @relation("ReportCreator")
+  reportsApproved DailyReport[]   @relation("ReportApprover")
+  auditLogs       AuditLog[]
+  agentActions    AgentAction[]
+}
+
+model ProjectMember {
+  userId    String
+  projectId String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, projectId])
+}
+
+// ───────── الأطراف A..F ─────────
+
+model Party {
+  id       String  @id @default(cuid())
+  name     String
+  // CLIENT | CONSULTANT | SUBCONTRACTOR | SUPPLIER
+  type     String
+  // تصنيف فرعي مثل A1, B3, D3, E1
+  category String?
+  phone    String?
+  email    String?
+
+  clientProjects     Project[] @relation("ProjectClient")
+  consultantProjects Project[] @relation("ProjectConsultant")
+}
+
+// ───────── المشروع ─────────
+
+model Project {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  name          String
+  location      String?
+  // ACTIVE | ON_HOLD | COMPLETED
+  status        String    @default("ACTIVE")
+  clientId      String
+  consultantId  String?
+  contractValue Float     @default(0)
+  startDate     DateTime?
+  endDate       DateTime?
+  // نسب بالمئة، مثلا 10 تعني 10%
+  retentionPct  Float     @default(10)
+  advanceAmount Float     @default(0)
+  vatPct        Float     @default(15)
+  createdAt     DateTime  @default(now())
+
+  client       Party                @relation("ProjectClient", fields: [clientId], references: [id])
+  consultant   Party?               @relation("ProjectConsultant", fields: [consultantId], references: [id])
+  members      ProjectMember[]
+  boqItems     BoqItem[]
+  dailyReports DailyReport[]
+  ipcs         PaymentCertificate[]
+}
+
+// رموز التكلفة: D1..D11 مقاولو الباطن، E1..E4 الموردون، F1..F3 الأعمال المؤقتة، وغيرها
+model CostCode {
+  id       String    @id @default(cuid())
+  code     String    @unique
+  name     String
+  group    String
+  boqItems BoqItem[]
+}
+
+model BoqItem {
+  id          String  @id @default(cuid())
+  projectId   String
+  itemNo      String
+  description String
+  unit        String
+  quantity    Float
+  rate        Float
+  costCodeId  String?
+  sortOrder   Int     @default(0)
+
+  project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  costCode CostCode?       @relation(fields: [costCodeId], references: [id])
+  progress ProgressEntry[]
+  ipcLines IpcLine[]
+
+  @@unique([projectId, itemNo])
+}
+
+// ───────── التنفيذ: التقرير اليومي ─────────
+
+model DailyReport {
+  id           String    @id @default(cuid())
+  projectId    String
+  date         DateTime
+  weather      String?
+  notes        String?
+  issues       String?
+  // DRAFT | SUBMITTED | APPROVED | REJECTED
+  status       String    @default("DRAFT")
+  // MANUAL | AGENT
+  source       String    @default("MANUAL")
+  rawText      String?
+  createdById  String
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy  User             @relation("ReportCreator", fields: [createdById], references: [id])
+  approvedBy User?            @relation("ReportApprover", fields: [approvedById], references: [id])
+  manpower   ManpowerEntry[]
+  equipment  EquipmentEntry[]
+  progress   ProgressEntry[]
+
+  @@unique([projectId, date])
+}
+
+model ManpowerEntry {
+  id       String      @id @default(cuid())
+  reportId String
+  trade    String
+  count    Int
+  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model EquipmentEntry {
+  id       String      @id @default(cuid())
+  reportId String
+  name     String
+  count    Int
+  hours    Float?
+  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model ProgressEntry {
+  id        String      @id @default(cuid())
+  reportId  String
+  boqItemId String
+  quantity  Float
+  location  String?
+  report    DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  boqItem   BoqItem     @relation(fields: [boqItemId], references: [id], onDelete: Cascade)
+}
+
+// ───────── مستخلصات المالك (IPC) ─────────
+
+model PaymentCertificate {
+  id              String    @id @default(cuid())
+  projectId       String
+  number          Int
+  periodTo        DateTime
+  // DRAFT | SUBMITTED | APPROVED | PAID
+  status          String    @default("DRAFT")
+  grossCumulative Float
+  previousGross   Float
+  currentGross    Float
+  retention       Float
+  advanceRecovery Float
+  vat             Float
+  netPayable      Float
+  approvedAmount  Float?
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
+
+  project Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lines   IpcLine[]
+
+  @@unique([projectId, number])
+}
+
+model IpcLine {
+  id            String             @id @default(cuid())
+  ipcId         String
+  boqItemId     String
+  previousQty   Float
+  currentQty    Float
+  cumulativeQty Float
+  rate          Float
+  ipc           PaymentCertificate @relation(fields: [ipcId], references: [id], onDelete: Cascade)
+  boqItem       BoqItem            @relation(fields: [boqItemId], references: [id])
+}
+
+// ───────── المحرك العام ─────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String
+  details   String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+// كل ما يفعله وكيل ذكي يسجل هنا
+model AgentAction {
+  id        String   @id @default(cuid())
+  agent     String
+  userId    String
+  projectId String?
+  input     String
+  output    String?
+  // SUCCESS | ERROR
+  status    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
