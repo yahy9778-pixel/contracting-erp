@@ -66,6 +66,7 @@ model Party {
   subcontracts       Subcontract[]   @relation("SubcontractParty")
   journalLines       JournalLine[]
   payments           Payment[]
+  rentedEquipment    Equipment[]
 }
 
 // ───────── المشروع ─────────
@@ -109,6 +110,12 @@ model Project {
   guarantees       BankGuarantee[]
   budgets          CostBudget[]
   activities       Activity[]
+  warehouses       Warehouse[]
+  stockMoves       StockMove[]
+  employees        Employee[]
+  payrollLines     PayrollLine[]
+  equipment        Equipment[]
+  equipmentUsages  EquipmentUsage[]
 }
 
 // رموز التكلفة: D1..D11 مقاولو الباطن، E1..E4 الموردون، F1..F3 الأعمال المؤقتة، وغيرها
@@ -123,6 +130,8 @@ model CostCode {
   journalLines     JournalLine[]
   expenses         Expense[]
   budgets          CostBudget[]
+  stockItems       StockItem[]
+  stockMoves       StockMove[]
 }
 
 model BoqItem {
@@ -472,6 +481,9 @@ model PoLine {
 model GoodsReceipt {
   id           String        @id @default(cuid())
   orderId      String
+  // عند الإدخال لمستودع: تُثبت المواد مخزونا بدل تحميلها على التكلفة مباشرة
+  warehouseId  String?
+  warehouse    Warehouse?    @relation(fields: [warehouseId], references: [id])
   date         DateTime
   deliveryNote String?
   createdById  String
@@ -715,4 +727,199 @@ model Activity {
   boqItem BoqItem? @relation(fields: [boqItemId], references: [id])
 
   @@unique([projectId, code])
+}
+
+// ═══════════ المرحلة الرابعة ═══════════
+
+// ───────── المخازن ─────────
+
+// المستودع المركزي (بدون مشروع) أو مستودع موقع
+model Warehouse {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  name      String
+  projectId String?
+
+  project  Project?       @relation(fields: [projectId], references: [id])
+  moves    StockMove[]
+  receipts GoodsReceipt[]
+}
+
+model StockItem {
+  id         String  @id @default(cuid())
+  code       String  @unique
+  name       String
+  unit       String
+  costCodeId String?
+  // حد إعادة الطلب: تنبيه عند نزول الرصيد الكلي عنه
+  minQty     Float   @default(0)
+
+  costCode CostCode?   @relation(fields: [costCodeId], references: [id])
+  moves    StockMove[]
+
+  @@unique([name, unit])
+}
+
+// كل حركة مخزنية: الكمية والقيمة بإشارة (+ دخول، - خروج). التكلفة بالمتوسط المرجح
+model StockMove {
+  id          String   @id @default(cuid())
+  number      Int
+  date        DateTime
+  // IN | ISSUE | TRANSFER | ADJUST
+  type        String
+  warehouseId String
+  itemId      String
+  quantity    Float
+  unitCost    Float
+  value       Float
+  projectId   String?
+  costCodeId  String?
+  grnId       String?
+  reference   String?
+  notes       String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  item      StockItem @relation(fields: [itemId], references: [id])
+  project   Project?  @relation(fields: [projectId], references: [id])
+  costCode  CostCode? @relation(fields: [costCodeId], references: [id])
+
+  @@index([itemId])
+  @@index([number])
+}
+
+// ───────── الموارد البشرية والرواتب ─────────
+
+model Employee {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  name        String
+  nationalId  String?
+  jobTitle    String
+  // STAFF موظف | LABOR عامل
+  kind        String    @default("LABOR")
+  trade       String?
+  basicSalary Float
+  allowances  Float     @default(0)
+  // المشروع المعيّن عليه، وبدونه: المركز الرئيسي
+  projectId   String?
+  joinDate    DateTime
+  // انتهاء الإقامة أو الهوية
+  idExpiry    DateTime?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  project      Project?      @relation(fields: [projectId], references: [id])
+  payrollLines PayrollLine[]
+}
+
+model PayrollRun {
+  id          String    @id @default(cuid())
+  // YYYY-MM
+  month       String    @unique
+  // DRAFT | APPROVED | PAID
+  status      String    @default("DRAFT")
+  approvedAt  DateTime?
+  paidAt      DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  lines PayrollLine[]
+}
+
+model PayrollLine {
+  id            String  @id @default(cuid())
+  runId         String
+  employeeId    String
+  projectId     String?
+  daysWorked    Float   @default(30)
+  basic         Float
+  allowances    Float
+  overtimeHours Float   @default(0)
+  overtimePay   Float   @default(0)
+  deductions    Float   @default(0)
+  net           Float
+
+  run      PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employee Employee   @relation(fields: [employeeId], references: [id])
+  project  Project?   @relation(fields: [projectId], references: [id])
+
+  @@unique([runId, employeeId])
+}
+
+// ───────── المعدات والورشة ─────────
+
+model Equipment {
+  id              String  @id @default(cuid())
+  code            String  @unique
+  name            String
+  // رمز التكلفة: E3 معدات، F2 نقل أفقي، F3 نقل رأسي
+  costCode        String  @default("E3")
+  // OWNED | RENTED
+  ownership       String  @default("OWNED")
+  supplierId      String?
+  // تكلفة الساعة المحمّلة على المشروع
+  hourlyRate      Float
+  projectId       String?
+  // ACTIVE | MAINTENANCE | IDLE
+  status          String  @default("ACTIVE")
+  meterHours      Float   @default(0)
+  serviceInterval Float?
+  lastServiceAt   Float   @default(0)
+
+  supplier   Party?           @relation(fields: [supplierId], references: [id])
+  project    Project?         @relation(fields: [projectId], references: [id])
+  usages     EquipmentUsage[]
+  workOrders WorkOrder[]
+}
+
+model EquipmentUsage {
+  id          String   @id @default(cuid())
+  equipmentId String
+  projectId   String
+  date        DateTime
+  hours       Float
+  rate        Float
+  operator    String?
+  notes       String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id])
+}
+
+// أمر عمل الورشة: صيانة وقائية أو إصلاح عطل
+model WorkOrder {
+  id          String    @id @default(cuid())
+  number      Int       @unique
+  equipmentId String
+  // PREVENTIVE | BREAKDOWN
+  kind        String
+  description String
+  // OPEN | DONE
+  status      String    @default("OPEN")
+  cost        Float     @default(0)
+  paidFrom    String?
+  resolution  String?
+  openedAt    DateTime  @default(now())
+  closedAt    DateTime?
+  createdById String
+
+  equipment Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+}
+
+// ───────── وكلاء الأقسام ─────────
+
+model AgentReport {
+  id          String   @id @default(cuid())
+  department  String
+  projectId   String?
+  createdById String
+  // JSON بمخرجات الوكيل
+  output      String
+  createdAt   DateTime @default(now())
+
+  @@index([department, projectId])
 }

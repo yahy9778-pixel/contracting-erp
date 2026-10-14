@@ -9,6 +9,9 @@ export const ROLES = {
   QUALITY: "الجودة QA/QC",
   TECHNICAL: "المكتب الفني",
   PROCUREMENT: "المشتريات ومقاولو الباطن",
+  STOREKEEPER: "المستودعات",
+  HR: "الموارد البشرية",
+  EQUIPMENT: "المعدات والورشة",
 } as const;
 
 export type Role = keyof typeof ROLES;
@@ -51,6 +54,20 @@ const MATRIX = {
   // التخطيط وضبط التكاليف
   "budget.edit": ["OWNER", "PLANNING"],
   "schedule.edit": ["OWNER", "PLANNING", "PROJECT_MANAGER"],
+  // المستودعات
+  "store.view": ["OWNER", "STOREKEEPER", "PROCUREMENT", "FINANCE", "PROJECT_MANAGER"],
+  "store.manage": ["OWNER", "STOREKEEPER"],
+  // الموارد البشرية والرواتب
+  "hr.view": ["OWNER", "HR", "FINANCE"],
+  "hr.manage": ["OWNER", "HR"],
+  "payroll.approve": ["OWNER"],
+  "payroll.pay": ["OWNER", "FINANCE"],
+  // المعدات والورشة
+  "equipment.view": ["OWNER", "EQUIPMENT", "PROJECT_MANAGER", "SITE_ENGINEER", "FINANCE"],
+  "equipment.manage": ["OWNER", "EQUIPMENT"],
+  "equipment.log": ["OWNER", "EQUIPMENT", "PROJECT_MANAGER", "SITE_ENGINEER"],
+  // وكلاء الأقسام
+  "agents.view": ["OWNER", "PROJECT_MANAGER", "PLANNING", "FINANCE", "PROCUREMENT", "QUALITY", "CONTRACTS", "TECHNICAL", "STOREKEEPER", "EQUIPMENT"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof MATRIX;

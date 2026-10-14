@@ -21,12 +21,13 @@ export default async function PoPage({ params, searchParams }: { params: Promise
       createdBy: true,
       approvedBy: true,
       lines: { include: { receipts: true } },
-      receipts: { include: { createdBy: true, lines: { include: { poLine: true } } }, orderBy: { date: "desc" } },
+      receipts: { include: { createdBy: true, warehouse: true, lines: { include: { poLine: true } } }, orderBy: { date: "desc" } },
     },
   });
   if (!po) notFound();
   const showMoney = can(user.role, "money.view");
   const canReceive = can(user.role, "grn.create") && ["ISSUED", "PARTIAL"].includes(po.status);
+  const warehouses = canReceive ? await db.warehouse.findMany({ where: { OR: [{ projectId: null }, { projectId: id }] }, orderBy: { code: "asc" } }) : [];
 
   return (
     <div className="space-y-6">
@@ -114,6 +115,17 @@ export default async function PoPage({ params, searchParams }: { params: Promise
               <label>رقم إذن التسليم</label>
               <input name="deliveryNote" />
             </div>
+            <div>
+              <label>وجهة المواد</label>
+              <select name="warehouseId" defaultValue="" className="w-auto">
+                <option value="">استهلاك مباشر في المشروع</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    إدخال لـ {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button className="btn">تسجيل الاستلام</button>
           </div>
         )}
@@ -126,7 +138,8 @@ export default async function PoPage({ params, searchParams }: { params: Promise
             {po.receipts.map((r) => (
               <li key={r.id}>
                 <span className="num font-semibold">{fmtDate(r.date)}</span> · {r.createdBy.name}
-                {r.deliveryNote && ` · إذن ${r.deliveryNote}`}:{" "}
+                {r.deliveryNote && ` · إذن ${r.deliveryNote}`}
+                {r.warehouse && ` · إلى ${r.warehouse.name}`}:{" "}
                 {r.lines.map((l) => `${l.poLine.description} ${fmtQty(l.quantity)} ${l.poLine.unit}`).join("، ")}
               </li>
             ))}

@@ -7,6 +7,7 @@ import { audit } from "@/lib/audit";
 import { num, runAction, str } from "@/lib/flash";
 import { parseDay } from "@/lib/format";
 import { postGoodsReceipt } from "@/lib/accounting";
+import { receiveIntoWarehouse } from "@/lib/stores";
 import { compareQuotes, initialPoStatus, receiptStatus } from "@/lib/procurement";
 
 const base = (projectId: string) => `/projects/${projectId}/procurement`;
@@ -194,6 +195,8 @@ export async function receiveGoods(projectId: string, poId: string, form: FormDa
       const { user } = await requireProjectAccess(projectId, "grn.create");
       const po = await db.purchaseOrder.findFirst({ where: { id: poId, projectId }, include: { lines: { include: { receipts: true } } } });
       if (!po || !["ISSUED", "PARTIAL"].includes(po.status)) throw new Error("لا يمكن الاستلام على هذا الأمر");
+      const warehouseId = str(form, "warehouseId") || null;
+      if (warehouseId && !(await db.warehouse.findUnique({ where: { id: warehouseId } }))) throw new Error("المستودع غير موجود");
       const lines: { poLineId: string; quantity: number }[] = [];
       for (const l of po.lines) {
         const qty = num(form, `rcv_${l.id}`);
@@ -210,10 +213,20 @@ export async function receiveGoods(projectId: string, poId: string, form: FormDa
       );
       // الاستلام يثبت التكلفة على المشروع والمستحق للمورد في نفس المعاملة
       await db.$transaction(async (tx) => {
+        const grnDate = parseDay(date || new Date().toISOString().slice(0, 10));
+        const deliveryNote = str(form, "deliveryNote") || null;
         const grn = await tx.goodsReceipt.create({
-          data: { orderId: poId, date: parseDay(date || new Date().toISOString().slice(0, 10)), deliveryNote: str(form, "deliveryNote") || null, createdById: user.id, lines: { create: lines } },
+          data: { orderId: poId, date: grnDate, deliveryNote, warehouseId, createdById: user.id, lines: { create: lines } },
         });
         await tx.purchaseOrder.update({ where: { id: poId }, data: { status } });
+        if (warehouseId) {
+          const byId = new Map(po.lines.map((l) => [l.id, l]));
+          await receiveIntoWarehouse(
+            tx,
+            { grnId: grn.id, warehouseId, date: grnDate, projectId, costCodeId: po.costCodeId, userId: user.id, reference: deliveryNote },
+            lines.map((l) => ({ ...byId.get(l.poLineId)!, quantity: l.quantity })),
+          );
+        }
         await postGoodsReceipt(tx, grn.id, user.id);
       });
       await audit(user.id, "receive", "PurchaseOrder", poId, { lines: lines.length });

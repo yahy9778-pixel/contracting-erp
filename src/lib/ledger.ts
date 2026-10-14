@@ -6,11 +6,13 @@ export const ACC = {
   AR: "1200",
   RET_REC: "1210",
   VAT_IN: "1300",
+  INVENTORY: "1400",
   AP: "2100",
   AP_SUB: "2110",
   RET_PAY: "2120",
   ADV_CLIENT: "2200",
   VAT_OUT: "2300",
+  SALARIES_PAYABLE: "2500",
   CAPITAL: "3100",
   RETAINED: "3200",
   REVENUE: "4100",
@@ -20,7 +22,10 @@ export const ACC = {
   EQUIPMENT: "5400",
   SITE_OH: "5500",
   TEMP_WORKS: "5600",
+  EQUIP_RECOVERY: "5490",
   ADMIN: "6100",
+  WORKSHOP: "6200",
+  STOCK_DIFF: "6300",
 } as const;
 
 export type AccountType = "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE";
@@ -31,11 +36,13 @@ export const CHART: { code: string; name: string; type: AccountType; isCash?: bo
   { code: ACC.AR, name: "العملاء (ذمم المستخلصات)", type: "ASSET" },
   { code: ACC.RET_REC, name: "محتجزات لدى العملاء", type: "ASSET" },
   { code: ACC.VAT_IN, name: "ضريبة القيمة المضافة على المشتريات", type: "ASSET" },
+  { code: ACC.INVENTORY, name: "المخزون", type: "ASSET" },
   { code: ACC.AP, name: "الموردون", type: "LIABILITY" },
   { code: ACC.AP_SUB, name: "مقاولو الباطن", type: "LIABILITY" },
   { code: ACC.RET_PAY, name: "محتجزات مقاولي الباطن", type: "LIABILITY" },
   { code: ACC.ADV_CLIENT, name: "دفعات مقدمة من العملاء", type: "LIABILITY" },
   { code: ACC.VAT_OUT, name: "ضريبة القيمة المضافة على المبيعات", type: "LIABILITY" },
+  { code: ACC.SALARIES_PAYABLE, name: "رواتب مستحقة", type: "LIABILITY" },
   { code: ACC.CAPITAL, name: "رأس المال", type: "EQUITY" },
   { code: ACC.RETAINED, name: "الأرباح المبقاة", type: "EQUITY" },
   { code: ACC.REVENUE, name: "إيرادات العقود", type: "REVENUE" },
@@ -45,7 +52,10 @@ export const CHART: { code: string; name: string; type: AccountType; isCash?: bo
   { code: ACC.EQUIPMENT, name: "تكاليف المعدات", type: "EXPENSE" },
   { code: ACC.SITE_OH, name: "مصاريف الموقع العامة", type: "EXPENSE" },
   { code: ACC.TEMP_WORKS, name: "تكاليف الأعمال المؤقتة", type: "EXPENSE" },
+  { code: ACC.EQUIP_RECOVERY, name: "تكلفة المعدات المملوكة المحمّلة على المشاريع (دائن)", type: "EXPENSE" },
   { code: ACC.ADMIN, name: "مصاريف إدارية وعمومية", type: "EXPENSE" },
+  { code: ACC.WORKSHOP, name: "مصاريف الورشة وصيانة المعدات", type: "EXPENSE" },
+  { code: ACC.STOCK_DIFF, name: "فروقات الجرد", type: "EXPENSE" },
 ];
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {

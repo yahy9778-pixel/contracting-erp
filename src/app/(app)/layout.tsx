@@ -17,6 +17,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <Link href="/" className="hover:text-white">
                 المشاريع
               </Link>
+              {can(user.role, "store.view") && (
+                <Link href="/stores" className="hover:text-white">
+                  المستودعات
+                </Link>
+              )}
+              {can(user.role, "equipment.view") && (
+                <Link href="/equipment" className="hover:text-white">
+                  المعدات
+                </Link>
+              )}
+              {can(user.role, "hr.view") && (
+                <Link href="/hr" className="hover:text-white">
+                  الموارد البشرية
+                </Link>
+              )}
               {can(user.role, "finance.view") && (
                 <Link href="/finance" className="hover:text-white">
                   المالية

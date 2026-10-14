@@ -39,6 +39,21 @@ const USERS = [
   { name: "المكتب الفني", email: "technical@company.local", role: "TECHNICAL" },
   { name: "مسؤول المشتريات", email: "procurement@company.local", role: "PROCUREMENT" },
   { name: "مهندس التخطيط", email: "planning@company.local", role: "PLANNING" },
+  { name: "أمين المستودعات", email: "store@company.local", role: "STOREKEEPER" },
+  { name: "مسؤول الموارد البشرية", email: "hr@company.local", role: "HR" },
+  { name: "مدير المعدات والورشة", email: "equipment@company.local", role: "EQUIPMENT" },
+];
+
+const EMPLOYEES: [string, string, "STAFF" | "LABOR", string | null, number, number, boolean, string | null][] = [
+  // الاسم، المسمى، النوع، المهنة، الأساسي، البدلات، في الموقع، انتهاء الإقامة
+  ["سالم العتيبي", "مدير مشروع", "STAFF", null, 14000, 4500, true, null],
+  ["محمد رفيق", "مهندس موقع", "STAFF", null, 8000, 2500, true, "2027-03-10"],
+  ["أحمد خان", "مراقب عمال", "LABOR", "مراقب", 3500, 800, true, "2026-11-02"],
+  ["راجيش كومار", "نجار مسلح", "LABOR", "نجار", 1800, 500, true, "2027-05-20"],
+  ["عبدالله نور", "حداد مسلح", "LABOR", "حداد", 1800, 500, true, "2027-01-15"],
+  ["جون مارك", "عامل عادي", "LABOR", "عامل", 1200, 400, true, "2027-06-01"],
+  ["خالد الزهراني", "محاسب", "STAFF", null, 9000, 2700, false, null],
+  ["نورة القحطاني", "أخصائية موارد بشرية", "STAFF", null, 8500, 2500, false, null],
 ];
 
 // تواريخ تنفيذ تجريبية لكل بند (خطة المشروع)
@@ -90,6 +105,48 @@ async function setupFinanceAndPlanning(projectId: string) {
       data: [
         { projectId, type: "PERFORMANCE", bank: "البنك الأهلي", number: "LG-2026-0147", amount: Math.round(project.contractValue * 0.05), issueDate: day("2026-08-20"), expiryDate: day("2027-09-30") },
         { projectId, type: "ADVANCE", bank: "البنك الأهلي", number: "LG-2026-0148", amount: project.advanceAmount, issueDate: day("2026-08-20"), expiryDate: day("2026-11-05") },
+      ],
+    });
+  }
+}
+
+// المرحلة الرابعة: مستودعات وموظفون ومعدات تجريبية
+async function setupOperations(projectId: string) {
+  if (!(await db.warehouse.count())) {
+    await db.warehouse.createMany({
+      data: [
+        { code: "WH-01", name: "المستودع المركزي" },
+        { code: "WH-P1", name: "مستودع موقع PRJ-001", projectId },
+      ],
+    });
+  }
+  if (!(await db.employee.count())) {
+    for (const [i, [name, jobTitle, kind, trade, basicSalary, allowances, onSite, expiry]] of EMPLOYEES.entries()) {
+      await db.employee.create({
+        data: {
+          code: `EMP-${String(i + 1).padStart(4, "0")}`,
+          name,
+          jobTitle,
+          kind,
+          trade,
+          basicSalary,
+          allowances,
+          projectId: onSite ? projectId : null,
+          joinDate: day("2026-08-01"),
+          idExpiry: expiry ? day(expiry) : null,
+        },
+      });
+    }
+  }
+  if (!(await db.equipment.count())) {
+    const lessor =
+      (await db.party.findFirst({ where: { name: "شركة تأجير الرافعات (تجريبي)" } })) ??
+      (await db.party.create({ data: { name: "شركة تأجير الرافعات (تجريبي)", type: "SUPPLIER", category: "F3" } }));
+    await db.equipment.createMany({
+      data: [
+        { code: "EX-01", name: "حفار كاتربيلر 320", costCode: "E3", hourlyRate: 180, projectId, status: "ACTIVE", meterHours: 1180, lastServiceAt: 950, serviceInterval: 250 },
+        { code: "TC-01", name: "رافعة برجية 8 طن", costCode: "F3", ownership: "RENTED", supplierId: lessor.id, hourlyRate: 260, projectId, status: "ACTIVE" },
+        { code: "PM-01", name: "مضخة خرسانة", costCode: "F2", hourlyRate: 220, status: "IDLE", meterHours: 640, lastServiceAt: 500, serviceInterval: 500 },
       ],
     });
   }
@@ -151,6 +208,7 @@ async function main() {
     }
     await setupAccounts();
     await setupFinanceAndPlanning(existing.id);
+    await setupOperations(existing.id);
     const posted = await syncPostings();
     console.log(`المشروع التجريبي موجود مسبقا: تم تحديث أعضائه، وترحيل ${posted} قيدا لأحداث سابقة`);
     return;
@@ -190,6 +248,7 @@ async function main() {
   });
   await setupAccounts();
   await setupFinanceAndPlanning(project.id);
+  await setupOperations(project.id);
   console.log(`تم إنشاء المشروع التجريبي ${project.code} بقيمة ${contractValue}`);
 }
 

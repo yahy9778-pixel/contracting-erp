@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "./db";
+import { payrollApprovalLines } from "./operations";
 import { ACC, costAccountFor, ipcApprovalLines, normalBalance, normalizeLines, r2, subCertApprovalLines, type Line } from "./ledger";
 
 type Tx = Prisma.TransactionClient;
@@ -97,15 +98,111 @@ export async function postGoodsReceipt(tx: Tx, grnId: string, userId: string | n
   });
   const value = grn.lines.reduce((s, l) => s + l.quantity * l.poLine.unitPrice, 0);
   const po = grn.order;
+  // الإدخال لمستودع يثبت مخزونا، ويُحمَّل على التكلفة عند الصرف للمشروع
+  const debit: Line = grn.warehouseId
+    ? { account: ACC.INVENTORY, debit: value }
+    : { account: costAccountFor(po.costCode?.code), debit: value, costCodeId: po.costCodeId };
   return postEntry(tx, {
     date: grn.date,
-    description: `استلام مواد على أمر الشراء رقم ${po.number}${grn.deliveryNote ? ` (إشعار ${grn.deliveryNote})` : ""}`,
+    description: `استلام مواد على أمر الشراء رقم ${po.number}${grn.deliveryNote ? ` (إشعار ${grn.deliveryNote})` : ""}${grn.warehouseId ? " إلى المستودع" : ""}`,
     sourceKey: `GRN:${grn.id}`,
     projectId: po.projectId,
     createdById: userId,
+    lines: [debit, { account: ACC.AP, credit: value, partyId: po.supplierId }],
+  });
+}
+
+// صرف مخزني لمشروع، أو تسوية جرد. التحويل بين المستودعات لا قيد له
+export async function postStockMove(tx: Tx, moveId: string, userId: string | null) {
+  const m = await tx.stockMove.findUniqueOrThrow({ where: { id: moveId }, include: { item: true, costCode: true } });
+  if (m.type === "ISSUE") {
+    return postEntry(tx, {
+      date: m.date,
+      description: `صرف مخزني رقم ${m.number}: ${m.item.name}`,
+      sourceKey: `STOCK:${m.id}`,
+      projectId: m.projectId,
+      createdById: userId,
+      lines: [
+        { account: costAccountFor(m.costCode?.code), debit: -m.value, costCodeId: m.costCodeId },
+        { account: ACC.INVENTORY, credit: -m.value, projectId: null },
+      ],
+    });
+  }
+  if (m.type === "ADJUST") {
+    return postEntry(tx, {
+      date: m.date,
+      description: `تسوية جرد رقم ${m.number}: ${m.item.name}`,
+      sourceKey: `STOCK:${m.id}`,
+      projectId: null,
+      createdById: userId,
+      lines: [
+        { account: ACC.INVENTORY, debit: m.value },
+        { account: ACC.STOCK_DIFF, credit: m.value },
+      ],
+    });
+  }
+  return null;
+}
+
+export async function postPayrollApproval(tx: Tx, runId: string, userId: string | null) {
+  const run = await tx.payrollRun.findUniqueOrThrow({ where: { id: runId }, include: { lines: true } });
+  const labor = await tx.costCode.findUnique({ where: { code: "L1" } });
+  return postEntry(tx, {
+    date: run.approvedAt ?? new Date(),
+    description: `مسير رواتب شهر ${run.month}`,
+    sourceKey: `PAYROLL:${run.id}`,
+    createdById: userId,
+    lines: payrollApprovalLines(run.lines, labor?.id ?? null),
+  });
+}
+
+export async function postPayrollPayment(tx: Tx, runId: string, cashCode: string, userId: string | null) {
+  const run = await tx.payrollRun.findUniqueOrThrow({ where: { id: runId }, include: { lines: true } });
+  const total = run.lines.reduce((s, l) => s + l.net, 0);
+  return postEntry(tx, {
+    date: run.paidAt ?? new Date(),
+    description: `صرف رواتب شهر ${run.month}`,
+    sourceKey: `PAYROLL_PAID:${run.id}`,
+    createdById: userId,
     lines: [
-      { account: costAccountFor(po.costCode?.code), debit: value, costCodeId: po.costCodeId },
-      { account: ACC.AP, credit: value, partyId: po.supplierId },
+      { account: ACC.SALARIES_PAYABLE, debit: total },
+      { account: cashCode, credit: total },
+    ],
+  });
+}
+
+// ساعات المعدة على المشروع: تكلفة على المشروع، ومقابلها استرداد داخلي للمملوكة أو مستحق لمؤجر المعدة
+export async function postEquipmentUsage(tx: Tx, usageId: string, userId: string | null) {
+  const u = await tx.equipmentUsage.findUniqueOrThrow({ where: { id: usageId }, include: { equipment: true } });
+  const cc = await tx.costCode.findUnique({ where: { code: u.equipment.costCode } });
+  const amount = u.hours * u.rate;
+  const owned = u.equipment.ownership === "OWNED" || !u.equipment.supplierId;
+  return postEntry(tx, {
+    date: u.date,
+    description: `تشغيل ${u.equipment.code} ${u.equipment.name}: ${u.hours} ساعة`,
+    sourceKey: `EQUIP:${u.id}`,
+    projectId: u.projectId,
+    createdById: userId,
+    lines: [
+      { account: costAccountFor(u.equipment.costCode), debit: amount, costCodeId: cc?.id ?? null },
+      owned
+        ? { account: ACC.EQUIP_RECOVERY, credit: amount, projectId: null }
+        : { account: ACC.AP, credit: amount, partyId: u.equipment.supplierId },
+    ],
+  });
+}
+
+export async function postWorkOrder(tx: Tx, workOrderId: string, userId: string | null) {
+  const wo = await tx.workOrder.findUniqueOrThrow({ where: { id: workOrderId }, include: { equipment: true } });
+  if (wo.cost <= 0 || !wo.paidFrom) return null;
+  return postEntry(tx, {
+    date: wo.closedAt ?? new Date(),
+    description: `أمر عمل الورشة رقم ${wo.number}: ${wo.equipment.code} ${wo.description}`,
+    sourceKey: `WORKORDER:${wo.id}`,
+    createdById: userId,
+    lines: [
+      { account: ACC.WORKSHOP, debit: wo.cost },
+      { account: wo.paidFrom, credit: wo.cost },
     ],
   });
 }
@@ -209,6 +306,21 @@ export async function syncPostings() {
   }
   for (const e of expenses) await db.$transaction((tx) => postExpense(tx, e.id, null));
   for (const p of payments) await db.$transaction((tx) => postPayment(tx, p.id, null));
+  const [moves, runs, usages, orders] = await Promise.all([
+    db.stockMove.findMany({ where: { type: { in: ["ISSUE", "ADJUST"] } } }),
+    db.payrollRun.findMany({ where: { status: { in: ["APPROVED", "PAID"] } } }),
+    db.equipmentUsage.findMany(),
+    db.workOrder.findMany({ where: { status: "DONE", cost: { gt: 0 } } }),
+  ]);
+  for (const m of moves) await db.$transaction((tx) => postStockMove(tx, m.id, null));
+  for (const r of runs) {
+    await db.$transaction(async (tx) => {
+      await postPayrollApproval(tx, r.id, null);
+      if (r.status === "PAID") await postPayrollPayment(tx, r.id, ACC.BANK, null);
+    });
+  }
+  for (const u of usages) await db.$transaction((tx) => postEquipmentUsage(tx, u.id, null));
+  for (const o of orders) await db.$transaction((tx) => postWorkOrder(tx, o.id, null));
   return (await db.journalEntry.count()) - before;
 }
 

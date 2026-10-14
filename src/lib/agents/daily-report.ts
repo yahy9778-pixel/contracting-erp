@@ -6,7 +6,8 @@ import { z } from "zod/v4";
 // وكيل التقرير اليومي: يحول رسالة مهندس الموقع (نص حر) إلى تقرير يومي منظم
 // لا يعتمد شيئا بنفسه: الناتج مسودة يراجعها المهندس ثم يرفعها للاعتماد
 
-export const MODEL = "claude-opus-5-5";
+export { MODEL } from "./model";
+import { MODEL } from "./model";
 
 export const DailyReportDraft = z.object({
   date: z.string().nullable().describe("تاريخ التقرير بصيغة YYYY-MM-DD إن ذُكر صراحة، وإلا null"),

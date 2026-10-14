@@ -20,6 +20,7 @@ export default async function ProjectLayout({ children, params }: { children: Re
           { href: "/finance", label: "التكاليف والمالية" },
         ]
       : []),
+    ...(can(user.role, "agents.view") ? [{ href: "/agents", label: "وكلاء الأقسام" }] : []),
   ];
   return (
     <>

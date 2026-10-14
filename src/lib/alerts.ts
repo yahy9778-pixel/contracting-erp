@@ -1,17 +1,19 @@
 import "server-only";
+import { can, type Permission } from "./permissions";
 import { db } from "./db";
 import { billableQuantities } from "./ipc-service";
 import { parseDay, todayStr } from "./format";
 import { GUARANTEE_WARNING_DAYS } from "./guarantees";
 import { costControl } from "./cost-control";
 import { projectSchedule } from "./schedule-service";
+import { serviceStatus } from "./operations";
 
-export type Alert = { level: "high" | "medium"; text: string; href: string; money?: boolean };
+export type Alert = { level: "high" | "medium"; text: string; href: string; perm?: Permission };
 
 // تنبيهات المشروع: ما ينتظر قرارا أو تأخر عن موعده
 // قواعد ثابتة اليوم، وسيشرحها ويرتبها وكيل الإدارة العليا في المرحلة الرابعة
-// money: هل يرى المستخدم التنبيهات المالية (مهندس الموقع لا يراها)
-export async function projectAlerts(projectId: string, opts: { money?: boolean } = {}): Promise<Alert[]> {
+// role: يرى المستخدم فقط التنبيهات التي تقوده لصفحة يملك صلاحيتها
+export async function projectAlerts(projectId: string, opts: { role?: string } = {}): Promise<Alert[]> {
   const today = parseDay(todayStr());
   const p = `/projects/${projectId}`;
   const [reports, openIrs, ncrs, overdueNcrs, lateSubs, lateRfis, prsPending, prsLate, posPending, ipcsApproved, q] = await Promise.all([
@@ -35,17 +37,30 @@ export async function projectAlerts(projectId: string, opts: { money?: boolean }
     costControl(projectId),
     projectSchedule(projectId, today),
   ]);
+  const [equipment, idsExpiring, stockItems, stockSums] = await Promise.all([
+    db.equipment.findMany({ where: { projectId } }),
+    db.employee.count({ where: { projectId, active: true, idExpiry: { lte: warnBy } } }),
+    db.stockItem.findMany({ where: { minQty: { gt: 0 } } }),
+    db.stockMove.groupBy({ by: ["itemId"], _sum: { quantity: true } }),
+  ]);
+  const serviceDue = equipment.filter((e) => serviceStatus(e.meterHours, e.lastServiceAt, e.serviceInterval).due).length;
+  const inWorkshop = equipment.filter((e) => e.status === "MAINTENANCE").length;
+  const lowStock = stockItems.filter((i) => (stockSums.find((x) => x.itemId === i.id)?._sum.quantity ?? 0) < i.minQty).length;
   const lateActs = sched.rows.filter((r) => r.status === "LATE").length;
   const behindActs = sched.rows.filter((r) => r.status === "BEHIND").length;
   const uninspected = q.requireInspection ? [...q.reported].filter(([id, qty]) => qty - (q.inspected.get(id) ?? 0) > 1e-9).length : 0;
 
   const alerts: Alert[] = [];
-  const add = (cond: number, level: Alert["level"], text: string, href: string, money = false) => cond > 0 && alerts.push({ level, text, href, money });
-  add(expiredGs, "high", `${expiredGs} خطاب ضمان انتهت صلاحيته وهو قائم`, `${p}/finance`, true);
-  add(expiringGs, "high", `${expiringGs} خطاب ضمان ينتهي خلال ${GUARANTEE_WARNING_DAYS} يوما: اطلب التمديد`, `${p}/finance`, true);
-  add(cc.overBudget.length, "high", `${cc.overBudget.length} رمز تكلفة تجاوزت تكلفته المتوقعة الموازنة`, `${p}/finance`, true);
+  const add = (cond: number, level: Alert["level"], text: string, href: string, perm?: Permission) => cond > 0 && alerts.push({ level, text, href, perm });
+  add(expiredGs, "high", `${expiredGs} خطاب ضمان انتهت صلاحيته وهو قائم`, `${p}/finance`, "money.view");
+  add(expiringGs, "high", `${expiringGs} خطاب ضمان ينتهي خلال ${GUARANTEE_WARNING_DAYS} يوما: اطلب التمديد`, `${p}/finance`, "money.view");
+  add(cc.overBudget.length, "high", `${cc.overBudget.length} رمز تكلفة تجاوزت تكلفته المتوقعة الموازنة`, `${p}/finance`, "money.view");
   add(lateActs, "high", `${lateActs} نشاط تجاوز موعد نهايته ولم يكتمل`, `${p}/schedule`);
   add(behindActs, "medium", `${behindActs} نشاط خلف الخطة بأكثر من 10%`, `${p}/schedule`);
+  add(serviceDue, "high", `${serviceDue} معدة في الموقع تجاوزت موعد صيانتها الوقائية`, "/equipment", "equipment.view");
+  add(idsExpiring, "high", `${idsExpiring} عامل أو موظف في الموقع تنتهي إقامته خلال 30 يوما`, "/hr", "hr.view");
+  add(inWorkshop, "medium", `${inWorkshop} معدة من معدات الموقع في الورشة`, "/equipment", "equipment.view");
+  add(lowStock, "medium", `${lowStock} صنف في المستودعات تحت حد إعادة الطلب`, "/stores", "store.view");
   add(overdueNcrs, "high", `${overdueNcrs} تقرير عدم مطابقة تجاوز موعد إغلاقه`, `${p}/quality`);
   add(lateSubs, "high", `${lateSubs} Submittal تأخر رد الاستشاري عليه`, `${p}/technical`);
   add(lateRfis, "high", `${lateRfis} استفسار فني تأخر الرد عليه`, `${p}/technical`);
@@ -56,7 +71,7 @@ export async function projectAlerts(projectId: string, opts: { money?: boolean }
   add(ncrs - overdueNcrs, "medium", `${ncrs - overdueNcrs} تقرير عدم مطابقة مفتوح`, `${p}/quality`);
   add(prsPending, "medium", `${prsPending} طلب شراء بانتظار الاعتماد`, `${p}/procurement`);
   add(posPending, "medium", `${posPending} أمر شراء فوق حد الصلاحية بانتظار اعتماد المالك`, `${p}/procurement`);
-  add(subUnpaid, "medium", `${subUnpaid} مستخلص باطن معتمد ولم يُدفع`, `${p}/subcontracts`, true);
-  add(ipcsApproved, "medium", `${ipcsApproved} مستخلص معتمد من الاستشاري ولم يُحصَّل بعد`, `${p}/ipcs`, true);
-  return opts.money === false ? alerts.filter((a) => !a.money) : alerts;
+  add(subUnpaid, "medium", `${subUnpaid} مستخلص باطن معتمد ولم يُدفع`, `${p}/subcontracts`, "money.view");
+  add(ipcsApproved, "medium", `${ipcsApproved} مستخلص معتمد من الاستشاري ولم يُحصَّل بعد`, `${p}/ipcs`, "money.view");
+  return opts.role ? alerts.filter((a) => !a.perm || can(opts.role!, a.perm)) : alerts;
 }

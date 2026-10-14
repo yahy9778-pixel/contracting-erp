@@ -10,3 +10,6 @@ export function guaranteeState(g: { status: string; expiryDate: Date }, today: D
   if (left <= GUARANTEE_WARNING_DAYS) return "EXPIRING";
   return "ACTIVE";
 }
+
+// أيام التنبيه قبل انتهاء إقامة أو هوية موظف
+export const DOC_WARNING_DAYS = 30;

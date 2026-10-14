@@ -11,7 +11,7 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
   const { id } = await params;
   const { user, project } = await requireProjectAccess(id);
   const showMoney = can(user.role, "money.view");
-  const [s, alerts] = await Promise.all([projectSummary(id), projectAlerts(id, { money: showMoney })]);
+  const [s, alerts] = await Promise.all([projectSummary(id), projectAlerts(id, { role: user.role })]);
   const recent = await db.dailyReport.findMany({
     where: { projectId: id },
     orderBy: { date: "desc" },
