@@ -42,6 +42,7 @@ const USERS = [
   { name: "أمين المستودعات", email: "store@company.local", role: "STOREKEEPER" },
   { name: "مسؤول الموارد البشرية", email: "hr@company.local", role: "HR" },
   { name: "مدير المعدات والورشة", email: "equipment@company.local", role: "EQUIPMENT" },
+  { name: "مسؤول السلامة", email: "safety@company.local", role: "SAFETY" },
 ];
 
 const EMPLOYEES: [string, string, "STAFF" | "LABOR", string | null, number, number, boolean, string | null][] = [

@@ -35,13 +35,18 @@ export async function projectAlerts(projectId: string, opts: { role?: string } =
     db.bankGuarantee.count({ where: { projectId, status: "ACTIVE", expiryDate: { gte: today, lte: warnBy } } }),
     db.subcontractCertificate.count({ where: { status: "APPROVED", subcontract: { projectId } } }),
     costControl(projectId),
-    projectSchedule(projectId, today),
+    projectSchedule(projectId, today, { curve: false }),
   ]);
   const [equipment, idsExpiring, stockItems, stockSums] = await Promise.all([
     db.equipment.findMany({ where: { projectId } }),
     db.employee.count({ where: { projectId, active: true, idExpiry: { lte: warnBy } } }),
     db.stockItem.findMany({ where: { minQty: { gt: 0 } } }),
     db.stockMove.groupBy({ by: ["itemId"], _sum: { quantity: true } }),
+  ]);
+  const [openLti, overdueObs, openHighObs] = await Promise.all([
+    db.safetyIncident.count({ where: { projectId, status: "OPEN", kind: "LOST_TIME" } }),
+    db.safetyObservation.count({ where: { projectId, status: "OPEN", dueDate: { lt: today } } }),
+    db.safetyObservation.count({ where: { projectId, status: "OPEN", severity: "HIGH", dueDate: { gte: today } } }),
   ]);
   const serviceDue = equipment.filter((e) => serviceStatus(e.meterHours, e.lastServiceAt, e.serviceInterval).due).length;
   const inWorkshop = equipment.filter((e) => e.status === "MAINTENANCE").length;
@@ -57,6 +62,9 @@ export async function projectAlerts(projectId: string, opts: { role?: string } =
   add(cc.overBudget.length, "high", `${cc.overBudget.length} رمز تكلفة تجاوزت تكلفته المتوقعة الموازنة`, `${p}/finance`, "money.view");
   add(lateActs, "high", `${lateActs} نشاط تجاوز موعد نهايته ولم يكتمل`, `${p}/schedule`);
   add(behindActs, "medium", `${behindActs} نشاط خلف الخطة بأكثر من 10%`, `${p}/schedule`);
+  add(openLti, "high", `${openLti} إصابة مضيعة للوقت لم يُغلق تحقيقها`, `${p}/safety`);
+  add(overdueObs, "high", `${overdueObs} ملاحظة سلامة تجاوزت موعد تصحيحها`, `${p}/safety`);
+  add(openHighObs, "medium", `${openHighObs} ملاحظة سلامة عالية الخطورة مفتوحة`, `${p}/safety`);
   add(serviceDue, "high", `${serviceDue} معدة في الموقع تجاوزت موعد صيانتها الوقائية`, "/equipment", "equipment.view");
   add(idsExpiring, "high", `${idsExpiring} عامل أو موظف في الموقع تنتهي إقامته خلال 30 يوما`, "/hr", "hr.view");
   add(inWorkshop, "medium", `${inWorkshop} معدة من معدات الموقع في الورشة`, "/equipment", "equipment.view");

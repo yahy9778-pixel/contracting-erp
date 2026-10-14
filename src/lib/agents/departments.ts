@@ -9,6 +9,7 @@ import { costControl, projectPnl } from "../cost-control";
 import { projectSchedule } from "../schedule-service";
 import { accountBalance, partyBalances } from "../accounting";
 import { serviceStatus } from "../operations";
+import { safetyStats } from "../safety-service";
 import type { Role } from "../permissions";
 
 // الأقسام الثمانية في نظام الوكلاء: لكل قسم مهامه، ومن يحق له تشغيله، والبيانات التي يقرؤها
@@ -70,7 +71,7 @@ async function contractsData(projectId: string) {
 }
 
 async function planningData(projectId: string) {
-  const sched = await projectSchedule(projectId, today());
+  const sched = await projectSchedule(projectId, today(), { curve: false });
   return {
     plannedPct: r2(sched.summary.planned * 100),
     actualPct: r2(sched.summary.actual * 100),
@@ -171,6 +172,20 @@ async function executionData(projectId: string) {
       serviceDue: serviceStatus(e.meterHours, e.lastServiceAt, e.serviceInterval).due,
     })),
     quality: q,
+    safety: await safetyData(projectId),
+  };
+}
+
+async function safetyData(projectId: string) {
+  const [stats, obs, incidents] = await Promise.all([
+    safetyStats(projectId),
+    db.safetyObservation.findMany({ where: { projectId, status: "OPEN" } }),
+    db.safetyIncident.findMany({ where: { projectId }, orderBy: { date: "desc" }, take: 10 }),
+  ]);
+  return {
+    ...stats,
+    openObservations: obs.map((o) => ({ no: o.number, category: o.category, severity: o.severity, description: o.description, owner: o.assignedTo, due: d(o.dueDate) })),
+    recentIncidents: incidents.map((i) => ({ no: i.number, date: d(i.date), kind: i.kind, description: i.description, status: i.status, lostDays: i.lostDays })),
   };
 }
 
@@ -206,6 +221,7 @@ async function seniorData(projectId: string) {
     alerts: alerts.map((a) => `${a.level === "high" ? "عاجل" : "متابعة"}: ${a.text}`),
     schedule: { plannedPct: plan.plannedPct, actualPct: plan.actualPct, spi: plan.spi, lateOrBehind: plan.activities.filter((a) => a.status === "LATE" || a.status === "BEHIND") },
     finance: { pnl: fin.pnl, projectCash: fin.projectCash, receivable: fin.receivable, payable: r2(fin.payableSuppliers + fin.payableSubcontractors), overBudget: fin.costByCode.filter((c) => c.budget > 0 && c.forecast > c.budget) },
+    safety: await safetyData(projectId),
     workforce: {
       count: employees.length,
       idsExpiringIn30Days: employees.filter((e) => e.idExpiry && daysBetween(t, e.idExpiry) <= 30).map((e) => ({ name: e.name, expiry: d(e.idExpiry) })),
@@ -283,11 +299,12 @@ export const DEPARTMENTS: Department[] = [
   {
     key: "execution",
     name: "إدارة التنفيذ",
-    roles: ["OWNER", "PROJECT_MANAGER", "QUALITY", "EQUIPMENT"],
+    roles: ["OWNER", "PROJECT_MANAGER", "QUALITY", "EQUIPMENT", "SAFETY"],
     duties: [
       "متابعة الإنتاجية اليومية والعمالة والمعدات في الموقع",
       "متابعة الاستلامات وعدم المطابقة مع الجودة",
       "رصد المعوقات المتكررة في التقارير اليومية",
+      "متابعة السلامة: الحوادث وملاحظات التفتيش المفتوحة ومعدل الإصابات",
     ],
     collect: async (id) => ({ ...(await base(id)), ...(await executionData(id)) }),
   },

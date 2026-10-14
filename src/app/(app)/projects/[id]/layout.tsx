@@ -10,6 +10,7 @@ export default async function ProjectLayout({ children, params }: { children: Re
     { href: "/boq", label: "جدول الكميات" },
     { href: "/reports", label: "التقارير اليومية" },
     { href: "/quality", label: "الجودة" },
+    { href: "/safety", label: "السلامة" },
     { href: "/technical", label: "المكتب الفني" },
     { href: "/procurement", label: "المشتريات" },
     { href: "/schedule", label: "التخطيط" },

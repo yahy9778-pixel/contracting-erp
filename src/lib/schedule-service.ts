@@ -5,7 +5,7 @@ import { activityStatus, monthEnds, plannedPct, scheduleSummary } from "./schedu
 import { parseDay, todayStr } from "./format";
 
 // الجدول الزمني للمشروع: المخطط والفعلي لكل نشاط وللمشروع، ومنحنى S
-export async function projectSchedule(projectId: string, at = parseDay(todayStr())) {
+export async function projectSchedule(projectId: string, at = parseDay(todayStr()), opts: { curve?: boolean } = {}) {
   const [project, activities, executed] = await Promise.all([
     db.project.findUniqueOrThrow({ where: { id: projectId } }),
     db.activity.findMany({ where: { projectId }, include: { boqItem: true }, orderBy: [{ sortOrder: "asc" }, { startDate: "asc" }] }),
@@ -27,7 +27,7 @@ export async function projectSchedule(projectId: string, at = parseDay(todayStr(
 
   // منحنى S: المخطط شهريا حتى النهاية، والفعلي حتى اليوم (الأنشطة اليدوية تدخل بنسبتها الحالية في نقطة اليوم فقط)
   let curve: { date: Date; planned: number; actual: number | null }[] = [];
-  if (activities.length) {
+  if (activities.length && opts.curve !== false) {
     const start = project.startDate ?? activities.reduce((m, a) => (a.startDate < m ? a.startDate : m), activities[0].startDate);
     const end = activities.reduce((m, a) => (a.endDate > m ? a.endDate : m), project.endDate ?? activities[0].endDate);
     const points = monthEnds(start, end);

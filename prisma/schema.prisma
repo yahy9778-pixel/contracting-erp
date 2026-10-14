@@ -116,6 +116,9 @@ model Project {
   payrollLines     PayrollLine[]
   equipment        Equipment[]
   equipmentUsages  EquipmentUsage[]
+  incidents        SafetyIncident[]
+  observations     SafetyObservation[]
+  toolboxTalks     ToolboxTalk[]
 }
 
 // رموز التكلفة: D1..D11 مقاولو الباطن، E1..E4 الموردون، F1..F3 الأعمال المؤقتة، وغيرها
@@ -922,4 +925,73 @@ model AgentReport {
   createdAt   DateTime @default(now())
 
   @@index([department, projectId])
+}
+
+// ───────── السلامة (HSE) ─────────
+
+model SafetyIncident {
+  id               String    @id @default(cuid())
+  projectId        String
+  number           Int
+  date             DateTime
+  // NEAR_MISS | FIRST_AID | LOST_TIME | PROPERTY_DAMAGE | ENVIRONMENT
+  kind             String
+  location         String?
+  description      String
+  injured          String?
+  lostDays         Float     @default(0)
+  rootCause        String?
+  correctiveAction String?
+  // OPEN | CLOSED
+  status           String    @default("OPEN")
+  closedAt         DateTime?
+  createdById      String
+  createdAt        DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, number])
+}
+
+// ملاحظة سلامة من جولة تفتيش: تُسند لمسؤول بموعد تصحيح
+model SafetyObservation {
+  id          String    @id @default(cuid())
+  projectId   String
+  number      Int
+  date        DateTime
+  category    String
+  severity    String
+  description String
+  assignedTo  String
+  dueDate     DateTime
+  status      String    @default("OPEN")
+  closureNote String?
+  closedAt    DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, number])
+}
+
+model ToolboxTalk {
+  id          String   @id @default(cuid())
+  projectId   String
+  date        DateTime
+  topic       String
+  attendees   Int
+  createdById String
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// محاولات الدخول الفاشلة: لإيقاف التخمين
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
 }

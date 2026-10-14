@@ -13,7 +13,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Link href="/" className="text-lg font-bold">
               نظام المقاولات
             </Link>
-            <nav className="flex gap-4 text-sm text-brand-100">
+            <nav className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-brand-100">
               <Link href="/" className="hover:text-white">
                 المشاريع
               </Link>
@@ -37,6 +37,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                   المالية
                 </Link>
               )}
+              {can(user.role, "audit.view") && (
+                <Link href="/admin/audit" className="hover:text-white">
+                  سجل التدقيق
+                </Link>
+              )}
               {can(user.role, "users.manage") && (
                 <Link href="/admin/users" className="hover:text-white">
                   المستخدمون والصلاحيات
@@ -45,9 +50,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span>
+            <Link href="/account" className="hover:underline">
               {user.name} <span className="text-brand-100">· {roleLabel(user.role)}</span>
-            </span>
+            </Link>
             <form action={logout}>
               <button className="rounded-md border border-brand-100/40 px-3 py-1 hover:bg-brand-700">خروج</button>
             </form>
