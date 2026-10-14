@@ -10,6 +10,20 @@ const STATUS_STYLES: Record<string, string> = {
   ACTIVE: "bg-emerald-100 text-emerald-800",
   ON_HOLD: "bg-amber-100 text-amber-800",
   COMPLETED: "bg-slate-100 text-slate-700",
+  OPEN: "bg-amber-100 text-amber-800",
+  CLOSED: "bg-slate-100 text-slate-700",
+  APPROVED_WITH_COMMENTS: "bg-emerald-100 text-emerald-800",
+  ANSWERED: "bg-emerald-100 text-emerald-800",
+  A: "bg-emerald-100 text-emerald-800",
+  B: "bg-emerald-100 text-emerald-800",
+  C: "bg-amber-100 text-amber-800",
+  D: "bg-red-100 text-red-800",
+  ORDERED: "bg-sky-100 text-sky-800",
+  PENDING_APPROVAL: "bg-amber-100 text-amber-800",
+  ISSUED: "bg-sky-100 text-sky-800",
+  PARTIAL: "bg-amber-100 text-amber-800",
+  RECEIVED: "bg-emerald-100 text-emerald-800",
+  CANCELLED: "bg-slate-100 text-slate-500",
 };
 
 export function StatusBadge({ status }: { status: string }) {

@@ -37,6 +37,7 @@ export async function createProject(form: FormData) {
         advanceAmount: num(form, "advanceAmount"),
         retentionPct: num(form, "retentionPct", 10),
         vatPct: num(form, "vatPct", 15),
+        requireInspection: form.get("requireInspection") === "on",
         startDate: start ? parseDay(start) : null,
         endDate: end ? parseDay(end) : null,
       },

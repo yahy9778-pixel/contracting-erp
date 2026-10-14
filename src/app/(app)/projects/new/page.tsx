@@ -55,6 +55,10 @@ export default async function NewProjectPage({ searchParams }: { searchParams: S
           <label>نسبة الضريبة %</label>
           <input name="vatPct" type="number" step="0.01" min="0" max="100" defaultValue="15" />
         </div>
+        <label className="flex items-center gap-2 font-normal md:col-span-2">
+          <input type="checkbox" name="requireInspection" defaultChecked className="w-auto" />
+          لا تدخل الكمية المستخلص إلا بعد استلام الاستشاري لها (طلب استلام معتمد)
+        </label>
         <div className="md:col-span-2">
           <button className="btn">حفظ المشروع</button>
         </div>

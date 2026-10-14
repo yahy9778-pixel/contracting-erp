@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateIpc } from "@/lib/ipc";
+import { billableQty, calculateIpc, capSubcontractQty } from "@/lib/ipc";
 
 const terms = {
   contractValue: 1_000_000,
@@ -52,5 +52,23 @@ describe("calculateIpc", () => {
       terms,
     );
     expect(res.lines[0].overrun).toBe(true);
+  });
+});
+
+describe("billableQty", () => {
+  it("is limited by inspected quantity when inspection is required", () => {
+    expect(billableQty(500, 300, true)).toBe(300);
+    expect(billableQty(200, 300, true)).toBe(200);
+  });
+  it("uses reported quantity when inspection is not required", () => {
+    expect(billableQty(500, 0, false)).toBe(500);
+  });
+});
+
+describe("capSubcontractQty", () => {
+  it("never pays the subcontractor more than we bill or than the subcontract", () => {
+    expect(capSubcontractQty(400, 300, 1000)).toEqual({ quantity: 300, capped: true, cap: 300 });
+    expect(capSubcontractQty(400, 900, 350)).toEqual({ quantity: 350, capped: true, cap: 350 });
+    expect(capSubcontractQty(100, 300, 1000)).toEqual({ quantity: 100, capped: false, cap: 300 });
   });
 });

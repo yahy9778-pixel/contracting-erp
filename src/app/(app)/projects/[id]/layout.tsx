@@ -9,7 +9,15 @@ export default async function ProjectLayout({ children, params }: { children: Re
     { href: "", label: "نظرة عامة" },
     { href: "/boq", label: "جدول الكميات" },
     { href: "/reports", label: "التقارير اليومية" },
-    ...(can(user.role, "money.view") ? [{ href: "/ipcs", label: "مستخلصات المالك" }] : []),
+    { href: "/quality", label: "الجودة" },
+    { href: "/technical", label: "المكتب الفني" },
+    { href: "/procurement", label: "المشتريات" },
+    ...(can(user.role, "money.view")
+      ? [
+          { href: "/subcontracts", label: "مقاولو الباطن" },
+          { href: "/ipcs", label: "مستخلصات المالك" },
+        ]
+      : []),
   ];
   return (
     <>

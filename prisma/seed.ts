@@ -33,6 +33,9 @@ const USERS = [
   { name: "مهندس الموقع", email: "site@company.local", role: "SITE_ENGINEER" },
   { name: "مهندس العقود", email: "contracts@company.local", role: "CONTRACTS" },
   { name: "المحاسب", email: "finance@company.local", role: "FINANCE" },
+  { name: "مهندس الجودة", email: "qc@company.local", role: "QUALITY" },
+  { name: "المكتب الفني", email: "technical@company.local", role: "TECHNICAL" },
+  { name: "مسؤول المشتريات", email: "procurement@company.local", role: "PROCUREMENT" },
 ];
 
 const BOQ: [string, string, string, number, number, string][] = [
@@ -61,8 +64,16 @@ async function main() {
     users.push(await db.user.upsert({ where: { email: u.email }, update: {}, create: { ...u, passwordHash } }));
   }
 
-  if (await db.project.findUnique({ where: { code: "PRJ-001" } })) {
-    console.log("المشروع التجريبي موجود مسبقا");
+  const existing = await db.project.findUnique({ where: { code: "PRJ-001" } });
+  if (existing) {
+    for (const u of users.filter((x) => x.role !== "OWNER")) {
+      await db.projectMember.upsert({
+        where: { userId_projectId: { userId: u.id, projectId: existing.id } },
+        update: {},
+        create: { userId: u.id, projectId: existing.id },
+      });
+    }
+    console.log("المشروع التجريبي موجود مسبقا، تم تحديث أعضائه");
     return;
   }
 

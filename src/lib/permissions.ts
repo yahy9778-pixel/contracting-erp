@@ -6,6 +6,9 @@ export const ROLES = {
   CONTRACTS: "العقود والمستخلصات",
   FINANCE: "الإدارة المالية",
   PLANNING: "التخطيط وضبط التكاليف",
+  QUALITY: "الجودة QA/QC",
+  TECHNICAL: "المكتب الفني",
+  PROCUREMENT: "المشتريات ومقاولو الباطن",
 } as const;
 
 export type Role = keyof typeof ROLES;
@@ -16,13 +19,30 @@ const MATRIX = {
   "projects.viewAll": ["OWNER"],
   "boq.edit": ["OWNER", "CONTRACTS"],
   // رؤية الأسعار والقيم المالية (مهندس الموقع يرى الكميات فقط)
-  "money.view": ["OWNER", "PROJECT_MANAGER", "CONTRACTS", "FINANCE", "PLANNING"],
+  "money.view": ["OWNER", "PROJECT_MANAGER", "CONTRACTS", "FINANCE", "PLANNING", "PROCUREMENT"],
   "report.create": ["OWNER", "PROJECT_MANAGER", "SITE_ENGINEER"],
   "report.approve": ["OWNER", "PROJECT_MANAGER"],
   "ipc.create": ["OWNER", "CONTRACTS"],
   "ipc.submit": ["OWNER", "CONTRACTS"],
   "ipc.approve": ["OWNER", "CONTRACTS"],
   "ipc.markPaid": ["OWNER", "FINANCE"],
+  // الجودة
+  "ir.create": ["OWNER", "PROJECT_MANAGER", "SITE_ENGINEER", "QUALITY"],
+  "ir.record": ["OWNER", "PROJECT_MANAGER", "QUALITY"],
+  "ncr.manage": ["OWNER", "PROJECT_MANAGER", "QUALITY"],
+  // المكتب الفني
+  "tech.manage": ["OWNER", "PROJECT_MANAGER", "TECHNICAL"],
+  // المشتريات
+  "pr.create": ["OWNER", "PROJECT_MANAGER", "SITE_ENGINEER", "TECHNICAL", "PROCUREMENT"],
+  "pr.approve": ["OWNER", "PROJECT_MANAGER"],
+  "po.manage": ["OWNER", "PROCUREMENT"],
+  // أوامر الشراء فوق حد الصلاحية تحتاج الإدارة العليا
+  "po.approveHigh": ["OWNER"],
+  "grn.create": ["OWNER", "PROCUREMENT", "SITE_ENGINEER"],
+  // مقاولو الباطن
+  "sub.manage": ["OWNER", "PROCUREMENT", "CONTRACTS"],
+  "sub.approve": ["OWNER", "PROJECT_MANAGER"],
+  "sub.markPaid": ["OWNER", "FINANCE"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof MATRIX;
@@ -34,3 +54,6 @@ export function can(role: string, permission: Permission): boolean {
 export function roleLabel(role: string): string {
   return ROLES[role as Role] ?? role;
 }
+
+// حد صلاحية أمر الشراء: ما فوقه يحتاج اعتماد الإدارة العليا
+export const PO_APPROVAL_LIMIT = Number(process.env.PO_APPROVAL_LIMIT ?? 50_000);

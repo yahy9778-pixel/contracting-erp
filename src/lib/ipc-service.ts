@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "./db";
-import { calculateIpc } from "./ipc";
+import { billableQty, calculateIpc } from "./ipc";
 
 // الكميات التراكمية المعتمدة لكل بند حتى تاريخ معين (من التقارير اليومية المعتمدة فقط)
 export async function executedQuantities(projectId: string, upTo?: Date) {
@@ -14,11 +14,32 @@ export async function executedQuantities(projectId: string, upTo?: Date) {
   return new Map(rows.map((r) => [r.boqItemId, r._sum.quantity ?? 0]));
 }
 
+export const ACCEPTED_IR = ["APPROVED", "APPROVED_WITH_COMMENTS"];
+
+// الكميات التي استلمها الاستشاري (طلبات استلام معتمدة) حتى تاريخ معين
+export async function inspectedQuantities(projectId: string, upTo?: Date) {
+  const rows = await db.inspectionRequest.groupBy({
+    by: ["boqItemId"],
+    where: { projectId, status: { in: ACCEPTED_IR }, ...(upTo ? { inspectionDate: { lte: upTo } } : {}) },
+    _sum: { quantity: true },
+  });
+  return new Map(rows.map((r) => [r.boqItemId, r._sum.quantity ?? 0]));
+}
+
+// الكمية القابلة للفوترة لكل بند حسب سياسة المشروع
+export async function billableQuantities(projectId: string, upTo?: Date) {
+  const project = await db.project.findUniqueOrThrow({ where: { id: projectId }, select: { requireInspection: true } });
+  const [reported, inspected] = await Promise.all([executedQuantities(projectId, upTo), inspectedQuantities(projectId, upTo)]);
+  const result = new Map<string, number>();
+  for (const [id, qty] of reported) result.set(id, billableQty(qty, inspected.get(id) ?? 0, project.requireInspection));
+  return { billable: result, reported, inspected, requireInspection: project.requireInspection };
+}
+
 export async function previewIpc(projectId: string, periodTo: Date) {
   const project = await db.project.findUniqueOrThrow({ where: { id: projectId } });
   const [items, executed, previous, recovered] = await Promise.all([
     db.boqItem.findMany({ where: { projectId }, orderBy: [{ sortOrder: "asc" }, { itemNo: "asc" }] }),
-    executedQuantities(projectId, periodTo),
+    billableQuantities(projectId, periodTo).then((b) => b.billable),
     db.paymentCertificate.findFirst({
       where: { projectId },
       orderBy: { number: "desc" },

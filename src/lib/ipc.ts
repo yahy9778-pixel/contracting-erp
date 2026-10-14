@@ -73,3 +73,15 @@ export function calculateIpc(items: IpcBoqInput[], terms: IpcTerms): IpcResult {
 
   return { lines, grossCumulative, previousGross: terms.previousGross, currentGross, retention, advanceRecovery, vat, netPayable };
 }
+
+// الكمية القابلة للفوترة لبند: المنفذ المعتمد في التقارير اليومية،
+// وإذا كان المشروع يشترط الاستلام فلا تتجاوز ما استلمه الاستشاري
+export function billableQty(reported: number, inspected: number, requireInspection: boolean): number {
+  return requireInspection ? Math.min(reported, inspected) : reported;
+}
+
+// مستخلص الباطن: لا ندفع لمقاول الباطن كمية أكبر مما نستخلصه نحن من المالك
+export function capSubcontractQty(requested: number, billableToUs: number, subcontractQty: number) {
+  const cap = Math.min(billableToUs, subcontractQty);
+  return { quantity: Math.min(Math.max(0, requested), cap), capped: requested > cap + 1e-9, cap };
+}

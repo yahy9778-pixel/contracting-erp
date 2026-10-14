@@ -23,10 +23,19 @@ model User {
   createdAt    DateTime @default(now())
 
   memberships     ProjectMember[]
-  reportsCreated  DailyReport[]   @relation("ReportCreator")
-  reportsApproved DailyReport[]   @relation("ReportApprover")
+  reportsCreated  DailyReport[]       @relation("ReportCreator")
+  reportsApproved DailyReport[]       @relation("ReportApprover")
   auditLogs       AuditLog[]
   agentActions    AgentAction[]
+  irs             InspectionRequest[] @relation("IrCreator")
+  ncrs            Ncr[]               @relation("NcrCreator")
+  submittals      Submittal[]         @relation("SubmittalCreator")
+  rfis            Rfi[]               @relation("RfiCreator")
+  prsCreated      PurchaseRequest[]   @relation("PrCreator")
+  prsApproved     PurchaseRequest[]   @relation("PrApprover")
+  posCreated      PurchaseOrder[]     @relation("PoCreator")
+  posApproved     PurchaseOrder[]     @relation("PoApprover")
+  receipts        GoodsReceipt[]      @relation("GrnCreator")
 }
 
 model ProjectMember {
@@ -50,45 +59,59 @@ model Party {
   phone    String?
   email    String?
 
-  clientProjects     Project[] @relation("ProjectClient")
-  consultantProjects Project[] @relation("ProjectConsultant")
+  clientProjects     Project[]       @relation("ProjectClient")
+  consultantProjects Project[]       @relation("ProjectConsultant")
+  quotations         Quotation[]     @relation("QuoteSupplier")
+  purchaseOrders     PurchaseOrder[] @relation("PoSupplier")
+  subcontracts       Subcontract[]   @relation("SubcontractParty")
 }
 
 // ───────── المشروع ─────────
 
 model Project {
-  id            String    @id @default(cuid())
-  code          String    @unique
-  name          String
-  location      String?
+  id                String    @id @default(cuid())
+  code              String    @unique
+  name              String
+  location          String?
   // ACTIVE | ON_HOLD | COMPLETED
-  status        String    @default("ACTIVE")
-  clientId      String
-  consultantId  String?
-  contractValue Float     @default(0)
-  startDate     DateTime?
-  endDate       DateTime?
+  status            String    @default("ACTIVE")
+  clientId          String
+  consultantId      String?
+  contractValue     Float     @default(0)
+  startDate         DateTime?
+  endDate           DateTime?
   // نسب بالمئة، مثلا 10 تعني 10%
-  retentionPct  Float     @default(10)
-  advanceAmount Float     @default(0)
-  vatPct        Float     @default(15)
-  createdAt     DateTime  @default(now())
+  retentionPct      Float     @default(10)
+  advanceAmount     Float     @default(0)
+  vatPct            Float     @default(15)
+  // عند التفعيل لا تدخل الكمية المستخلص إلا بعد استلام الاستشاري لها (IR معتمد)
+  requireInspection Boolean   @default(true)
+  createdAt         DateTime  @default(now())
 
-  client       Party                @relation("ProjectClient", fields: [clientId], references: [id])
-  consultant   Party?               @relation("ProjectConsultant", fields: [consultantId], references: [id])
-  members      ProjectMember[]
-  boqItems     BoqItem[]
-  dailyReports DailyReport[]
-  ipcs         PaymentCertificate[]
+  client           Party                @relation("ProjectClient", fields: [clientId], references: [id])
+  consultant       Party?               @relation("ProjectConsultant", fields: [consultantId], references: [id])
+  members          ProjectMember[]
+  boqItems         BoqItem[]
+  dailyReports     DailyReport[]
+  ipcs             PaymentCertificate[]
+  irs              InspectionRequest[]
+  ncrs             Ncr[]
+  submittals       Submittal[]
+  rfis             Rfi[]
+  purchaseRequests PurchaseRequest[]
+  purchaseOrders   PurchaseOrder[]
+  subcontracts     Subcontract[]
 }
 
 // رموز التكلفة: D1..D11 مقاولو الباطن، E1..E4 الموردون، F1..F3 الأعمال المؤقتة، وغيرها
 model CostCode {
-  id       String    @id @default(cuid())
-  code     String    @unique
-  name     String
-  group    String
-  boqItems BoqItem[]
+  id               String            @id @default(cuid())
+  code             String            @unique
+  name             String
+  group            String
+  boqItems         BoqItem[]
+  purchaseRequests PurchaseRequest[]
+  purchaseOrders   PurchaseOrder[]
 }
 
 model BoqItem {
@@ -102,10 +125,14 @@ model BoqItem {
   costCodeId  String?
   sortOrder   Int     @default(0)
 
-  project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  costCode CostCode?       @relation(fields: [costCodeId], references: [id])
-  progress ProgressEntry[]
-  ipcLines IpcLine[]
+  project          Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  costCode         CostCode?           @relation(fields: [costCodeId], references: [id])
+  progress         ProgressEntry[]
+  ipcLines         IpcLine[]
+  irs              InspectionRequest[]
+  ncrs             Ncr[]
+  submittals       Submittal[]
+  subcontractLines SubcontractLine[]
 
   @@unique([projectId, itemNo])
 }
@@ -229,4 +256,291 @@ model AgentAction {
   status    String
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
+}
+
+// ═══════════ المرحلة الثانية ═══════════
+
+// ───────── الجودة: طلبات الاستلام (IR) وعدم المطابقة (NCR) ─────────
+
+model InspectionRequest {
+  id             String    @id @default(cuid())
+  projectId      String
+  number         Int
+  boqItemId      String
+  location       String
+  quantity       Float
+  inspectionDate DateTime
+  // OPEN | APPROVED | APPROVED_WITH_COMMENTS | REJECTED
+  status         String    @default("OPEN")
+  comment        String?
+  createdById    String
+  reviewedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  boqItem   BoqItem @relation(fields: [boqItemId], references: [id])
+  createdBy User    @relation("IrCreator", fields: [createdById], references: [id])
+
+  @@unique([projectId, number])
+}
+
+model Ncr {
+  id               String    @id @default(cuid())
+  projectId        String
+  number           Int
+  // CONSULTANT | INTERNAL
+  source           String
+  boqItemId        String?
+  location         String?
+  description      String
+  correctiveAction String?
+  dueDate          DateTime?
+  // OPEN | CLOSED
+  status           String    @default("OPEN")
+  closedAt         DateTime?
+  createdById      String
+  createdAt        DateTime  @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  boqItem   BoqItem? @relation(fields: [boqItemId], references: [id])
+  createdBy User     @relation("NcrCreator", fields: [createdById], references: [id])
+
+  @@unique([projectId, number])
+}
+
+// ───────── المكتب الفني ─────────
+
+model Submittal {
+  id          String    @id @default(cuid())
+  projectId   String
+  number      Int
+  revision    Int       @default(0)
+  // MATERIAL | SHOP_DRAWING | METHOD_STATEMENT
+  type        String
+  title       String
+  boqItemId   String?
+  // DRAFT | SUBMITTED | A | B | C | D
+  // A معتمد، B معتمد مع ملاحظات، C يعدل ويعاد، D مرفوض
+  status      String    @default("DRAFT")
+  submittedAt DateTime?
+  dueDate     DateTime?
+  respondedAt DateTime?
+  comment     String?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  boqItem   BoqItem?          @relation(fields: [boqItemId], references: [id])
+  createdBy User              @relation("SubmittalCreator", fields: [createdById], references: [id])
+  requests  PurchaseRequest[]
+
+  @@unique([projectId, number, revision])
+}
+
+model Rfi {
+  id          String    @id @default(cuid())
+  projectId   String
+  number      Int
+  subject     String
+  question    String
+  dueDate     DateTime?
+  // OPEN | ANSWERED
+  status      String    @default("OPEN")
+  answer      String?
+  answeredAt  DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("RfiCreator", fields: [createdById], references: [id])
+
+  @@unique([projectId, number])
+}
+
+// ───────── المشتريات ─────────
+
+model PurchaseRequest {
+  id           String    @id @default(cuid())
+  projectId    String
+  number       Int
+  title        String
+  requiredDate DateTime?
+  costCodeId   String?
+  submittalId  String?
+  // DRAFT | SUBMITTED | APPROVED | REJECTED | ORDERED
+  status       String    @default("DRAFT")
+  createdById  String
+  approvedById String?
+  createdAt    DateTime  @default(now())
+
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  costCode   CostCode?       @relation(fields: [costCodeId], references: [id])
+  submittal  Submittal?      @relation(fields: [submittalId], references: [id])
+  createdBy  User            @relation("PrCreator", fields: [createdById], references: [id])
+  approvedBy User?           @relation("PrApprover", fields: [approvedById], references: [id])
+  lines      PrLine[]
+  quotations Quotation[]
+  orders     PurchaseOrder[]
+
+  @@unique([projectId, number])
+}
+
+model PrLine {
+  id          String          @id @default(cuid())
+  requestId   String
+  description String
+  unit        String
+  quantity    Float
+  request     PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  quoteLines  QuoteLine[]
+  poLines     PoLine[]
+}
+
+model Quotation {
+  id           String          @id @default(cuid())
+  requestId    String
+  supplierId   String
+  deliveryDays Int?
+  notes        String?
+  createdAt    DateTime        @default(now())
+  request      PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  supplier     Party           @relation("QuoteSupplier", fields: [supplierId], references: [id])
+  lines        QuoteLine[]
+}
+
+model QuoteLine {
+  id          String    @id @default(cuid())
+  quotationId String
+  prLineId    String
+  unitPrice   Float
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  prLine      PrLine    @relation(fields: [prLineId], references: [id], onDelete: Cascade)
+}
+
+model PurchaseOrder {
+  id           String   @id @default(cuid())
+  projectId    String
+  number       Int
+  requestId    String
+  supplierId   String
+  costCodeId   String?
+  total        Float
+  // PENDING_APPROVAL | ISSUED | PARTIAL | RECEIVED | CANCELLED
+  status       String
+  createdById  String
+  approvedById String?
+  createdAt    DateTime @default(now())
+
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  request    PurchaseRequest @relation(fields: [requestId], references: [id])
+  supplier   Party           @relation("PoSupplier", fields: [supplierId], references: [id])
+  costCode   CostCode?       @relation(fields: [costCodeId], references: [id])
+  createdBy  User            @relation("PoCreator", fields: [createdById], references: [id])
+  approvedBy User?           @relation("PoApprover", fields: [approvedById], references: [id])
+  lines      PoLine[]
+  receipts   GoodsReceipt[]
+
+  @@unique([projectId, number])
+}
+
+model PoLine {
+  id          String        @id @default(cuid())
+  orderId     String
+  prLineId    String?
+  description String
+  unit        String
+  quantity    Float
+  unitPrice   Float
+  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  prLine      PrLine?       @relation(fields: [prLineId], references: [id])
+  receipts    GrnLine[]
+}
+
+model GoodsReceipt {
+  id           String        @id @default(cuid())
+  orderId      String
+  date         DateTime
+  deliveryNote String?
+  createdById  String
+  createdAt    DateTime      @default(now())
+  order        PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdBy    User          @relation("GrnCreator", fields: [createdById], references: [id])
+  lines        GrnLine[]
+}
+
+model GrnLine {
+  id        String       @id @default(cuid())
+  receiptId String
+  poLineId  String
+  quantity  Float
+  receipt   GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  poLine    PoLine       @relation(fields: [poLineId], references: [id], onDelete: Cascade)
+}
+
+// ───────── مقاولو الباطن ─────────
+
+model Subcontract {
+  id              String   @id @default(cuid())
+  projectId       String
+  number          Int
+  subcontractorId String
+  scope           String
+  retentionPct    Float    @default(10)
+  vatPct          Float    @default(15)
+  // ACTIVE | CLOSED
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+
+  project       Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  subcontractor Party                    @relation("SubcontractParty", fields: [subcontractorId], references: [id])
+  lines         SubcontractLine[]
+  certificates  SubcontractCertificate[]
+
+  @@unique([projectId, number])
+}
+
+model SubcontractLine {
+  id            String                @id @default(cuid())
+  subcontractId String
+  boqItemId     String
+  quantity      Float
+  rate          Float
+  subcontract   Subcontract           @relation(fields: [subcontractId], references: [id], onDelete: Cascade)
+  boqItem       BoqItem               @relation(fields: [boqItemId], references: [id])
+  certLines     SubcontractCertLine[]
+
+  @@unique([subcontractId, boqItemId])
+}
+
+model SubcontractCertificate {
+  id              String   @id @default(cuid())
+  subcontractId   String
+  number          Int
+  periodTo        DateTime
+  // DRAFT | APPROVED | PAID
+  status          String   @default("DRAFT")
+  grossCumulative Float
+  previousGross   Float
+  currentGross    Float
+  retention       Float
+  vat             Float
+  netPayable      Float
+  createdAt       DateTime @default(now())
+
+  subcontract Subcontract           @relation(fields: [subcontractId], references: [id], onDelete: Cascade)
+  lines       SubcontractCertLine[]
+
+  @@unique([subcontractId, number])
+}
+
+model SubcontractCertLine {
+  id            String                 @id @default(cuid())
+  certificateId String
+  lineId        String
+  previousQty   Float
+  currentQty    Float
+  cumulativeQty Float
+  rate          Float
+  certificate   SubcontractCertificate @relation(fields: [certificateId], references: [id], onDelete: Cascade)
+  line          SubcontractLine        @relation(fields: [lineId], references: [id])
 }

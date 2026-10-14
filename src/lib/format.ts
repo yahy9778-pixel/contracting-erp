@@ -15,7 +15,26 @@ export const STATUS_LABELS: Record<string, string> = {
   ACTIVE: "قيد التنفيذ",
   ON_HOLD: "متوقف",
   COMPLETED: "منتهي",
+  OPEN: "مفتوح",
+  CLOSED: "مغلق",
+  APPROVED_WITH_COMMENTS: "معتمد بملاحظات",
+  ANSWERED: "تم الرد",
+  A: "A معتمد",
+  B: "B معتمد بملاحظات",
+  C: "C يعدل ويعاد",
+  D: "D مرفوض",
+  ORDERED: "تم الطلب",
+  PENDING_APPROVAL: "بانتظار اعتماد الإدارة",
+  ISSUED: "صادر للمورد",
+  PARTIAL: "استلام جزئي",
+  RECEIVED: "مستلم بالكامل",
+  CANCELLED: "ملغي",
 };
+
+export const todayStr = () => new Date().toISOString().slice(0, 10);
+
+// تاريخ مستحق انقضى ولم يُغلق
+export const isOverdue = (due: Date | null | undefined) => Boolean(due && due.getTime() < parseDay(todayStr()).getTime());
 
 export const statusLabel = (s: string) => STATUS_LABELS[s] ?? s;
 

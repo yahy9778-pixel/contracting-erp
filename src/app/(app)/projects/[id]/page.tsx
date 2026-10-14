@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireProjectAccess } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { projectSummary } from "@/lib/metrics";
+import { projectAlerts } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { fmtDate, fmtMoney, fmtPct } from "@/lib/format";
 import { Stat, StatusBadge } from "@/components/ui";
@@ -10,7 +11,7 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
   const { id } = await params;
   const { user, project } = await requireProjectAccess(id);
   const showMoney = can(user.role, "money.view");
-  const s = await projectSummary(id);
+  const [s, alerts] = await Promise.all([projectSummary(id), projectAlerts(id)]);
   const recent = await db.dailyReport.findMany({
     where: { projectId: id },
     orderBy: { date: "desc" },
@@ -21,6 +22,23 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
 
   return (
     <div className="space-y-6">
+      <div className="card">
+        <h2 className="mb-3">ما يحتاج متابعة</h2>
+        {alerts.length === 0 ? (
+          <p className="text-sm text-emerald-700">لا توجد بنود متأخرة أو معلقة.</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {alerts.map((a) => (
+              <li key={a.text} className="flex items-center gap-2">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${a.level === "high" ? "bg-red-600" : "bg-amber-500"}`} />
+                <Link href={a.href} className="hover:underline">
+                  {a.text}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <div className="grid gap-4 md:grid-cols-4">
         {showMoney && <Stat label="قيمة العقد" value={<span className="num">{fmtMoney(project.contractValue)}</span>} />}
         {showMoney && <Stat label="قيمة المنفذ المعتمد" value={<span className="num">{fmtMoney(s.executedValue)}</span>} />}
