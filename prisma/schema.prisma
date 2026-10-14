@@ -64,6 +64,8 @@ model Party {
   quotations         Quotation[]     @relation("QuoteSupplier")
   purchaseOrders     PurchaseOrder[] @relation("PoSupplier")
   subcontracts       Subcontract[]   @relation("SubcontractParty")
+  journalLines       JournalLine[]
+  payments           Payment[]
 }
 
 // ───────── المشروع ─────────
@@ -101,6 +103,12 @@ model Project {
   purchaseRequests PurchaseRequest[]
   purchaseOrders   PurchaseOrder[]
   subcontracts     Subcontract[]
+  journalLines     JournalLine[]
+  expenses         Expense[]
+  payments         Payment[]
+  guarantees       BankGuarantee[]
+  budgets          CostBudget[]
+  activities       Activity[]
 }
 
 // رموز التكلفة: D1..D11 مقاولو الباطن، E1..E4 الموردون، F1..F3 الأعمال المؤقتة، وغيرها
@@ -112,6 +120,9 @@ model CostCode {
   boqItems         BoqItem[]
   purchaseRequests PurchaseRequest[]
   purchaseOrders   PurchaseOrder[]
+  journalLines     JournalLine[]
+  expenses         Expense[]
+  budgets          CostBudget[]
 }
 
 model BoqItem {
@@ -133,6 +144,7 @@ model BoqItem {
   ncrs             Ncr[]
   submittals       Submittal[]
   subcontractLines SubcontractLine[]
+  activities       Activity[]
 
   @@unique([projectId, itemNo])
 }
@@ -210,6 +222,7 @@ model PaymentCertificate {
   vat             Float
   netPayable      Float
   approvedAmount  Float?
+  approvedAt      DateTime?
   paidAt          DateTime?
   createdAt       DateTime  @default(now())
 
@@ -513,19 +526,21 @@ model SubcontractLine {
 }
 
 model SubcontractCertificate {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   subcontractId   String
   number          Int
   periodTo        DateTime
   // DRAFT | APPROVED | PAID
-  status          String   @default("DRAFT")
+  status          String    @default("DRAFT")
   grossCumulative Float
   previousGross   Float
   currentGross    Float
   retention       Float
   vat             Float
   netPayable      Float
-  createdAt       DateTime @default(now())
+  approvedAt      DateTime?
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
 
   subcontract Subcontract           @relation(fields: [subcontractId], references: [id], onDelete: Cascade)
   lines       SubcontractCertLine[]
@@ -543,4 +558,161 @@ model SubcontractCertLine {
   rate          Float
   certificate   SubcontractCertificate @relation(fields: [certificateId], references: [id], onDelete: Cascade)
   line          SubcontractLine        @relation(fields: [lineId], references: [id])
+}
+
+// ═══════════ المرحلة الثالثة: المالية والتخطيط ═══════════
+
+// ───────── الحسابات العامة ─────────
+
+// دليل الحسابات
+model Account {
+  id     String  @id @default(cuid())
+  code   String  @unique
+  name   String
+  // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  type   String
+  // حساب نقدية أو بنك يمكن الصرف والتحصيل منه
+  isCash Boolean @default(false)
+  active Boolean @default(true)
+
+  lines    JournalLine[]
+  expenses Expense[]
+  payments Payment[]
+}
+
+// قيد يومية. القيود الآلية تحمل sourceKey يمنع ترحيل الحدث مرتين
+model JournalEntry {
+  id          String   @id @default(cuid())
+  number      Int      @unique
+  date        DateTime
+  description String
+  sourceKey   String?  @unique
+  // MANUAL | AUTO
+  kind        String   @default("AUTO")
+  reversedBy  String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  lines JournalLine[]
+}
+
+model JournalLine {
+  id         String  @id @default(cuid())
+  entryId    String
+  accountId  String
+  debit      Float   @default(0)
+  credit     Float   @default(0)
+  projectId  String?
+  costCodeId String?
+  partyId    String?
+  memo       String?
+
+  entry    JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  account  Account      @relation(fields: [accountId], references: [id])
+  project  Project?     @relation(fields: [projectId], references: [id])
+  costCode CostCode?    @relation(fields: [costCodeId], references: [id])
+  party    Party?       @relation(fields: [partyId], references: [id])
+
+  @@index([accountId])
+  @@index([projectId])
+}
+
+// مصروفات الموقع والعهد النقدية
+model Expense {
+  id          String   @id @default(cuid())
+  projectId   String
+  number      Int
+  date        DateTime
+  costCodeId  String
+  description String
+  payee       String?
+  amount      Float
+  vat         Float    @default(0)
+  paidFromId  String
+  reference   String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  costCode CostCode @relation(fields: [costCodeId], references: [id])
+  paidFrom Account  @relation(fields: [paidFromId], references: [id])
+
+  @@unique([projectId, number])
+}
+
+// سندات الصرف والقبض التي لا تأتي من مستخلص
+model Payment {
+  id          String   @id @default(cuid())
+  number      Int      @unique
+  date        DateTime
+  // SUPPLIER_PAYMENT | ADVANCE_RECEIPT
+  kind        String
+  projectId   String
+  partyId     String
+  accountId   String
+  amount      Float
+  reference   String?
+  notes       String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  party   Party   @relation(fields: [partyId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
+}
+
+// خطابات الضمان
+model BankGuarantee {
+  id         String    @id @default(cuid())
+  projectId  String
+  // BID | PERFORMANCE | ADVANCE | RETENTION
+  type       String
+  bank       String
+  number     String
+  amount     Float
+  issueDate  DateTime
+  expiryDate DateTime
+  // ACTIVE | RELEASED
+  status     String    @default("ACTIVE")
+  releasedAt DateTime?
+  notes      String?
+  createdAt  DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ───────── ضبط التكاليف ─────────
+
+model CostBudget {
+  projectId  String
+  costCodeId String
+  amount     Float
+
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  costCode CostCode @relation(fields: [costCodeId], references: [id])
+
+  @@id([projectId, costCodeId])
+}
+
+// ───────── التخطيط: الجدول الزمني ─────────
+
+model Activity {
+  id        String   @id @default(cuid())
+  projectId String
+  code      String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  // الوزن النسبي في المشروع، افتراضيا قيمة البند في BOQ
+  weight    Float
+  // نشاط مرتبط ببند: إنجازه من التقارير اليومية المعتمدة
+  boqItemId String?
+  // نشاط غير مرتبط ببند: نسبة إنجاز يدخلها المخطط (0..1)
+  manualPct Float?
+  sortOrder Int      @default(0)
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  boqItem BoqItem? @relation(fields: [boqItemId], references: [id])
+
+  @@unique([projectId, code])
 }

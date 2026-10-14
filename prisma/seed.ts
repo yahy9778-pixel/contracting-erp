@@ -1,6 +1,8 @@
 // بيانات أولية: رموز التكلفة، مستخدمون تجريبيون، ومشروع تجريبي بجدول كميات
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { CHART, ACC } from "../src/lib/ledger";
+import { postEntry, syncPostings } from "../src/lib/accounting";
 
 const db = new PrismaClient();
 
@@ -36,7 +38,81 @@ const USERS = [
   { name: "مهندس الجودة", email: "qc@company.local", role: "QUALITY" },
   { name: "المكتب الفني", email: "technical@company.local", role: "TECHNICAL" },
   { name: "مسؤول المشتريات", email: "procurement@company.local", role: "PROCUREMENT" },
+  { name: "مهندس التخطيط", email: "planning@company.local", role: "PLANNING" },
 ];
+
+// تواريخ تنفيذ تجريبية لكل بند (خطة المشروع)
+const PLAN: Record<string, [string, string]> = {
+  "1.01": ["2026-09-01", "2026-10-31"],
+  "1.02": ["2026-10-15", "2026-12-15"],
+  "2.01": ["2026-09-20", "2026-10-20"],
+  "2.02": ["2026-10-01", "2026-11-30"],
+  "2.03": ["2026-11-15", "2027-03-31"],
+  "2.04": ["2026-12-01", "2027-04-30"],
+  "3.01": ["2027-02-01", "2027-06-15"],
+  "3.02": ["2027-03-15", "2027-07-15"],
+  "3.03": ["2027-05-01", "2027-08-20"],
+  "4.01": ["2027-01-15", "2027-07-31"],
+  "5.01": ["2026-11-01", "2027-06-30"],
+  "6.01": ["2027-05-01", "2027-07-31"],
+};
+const day = (s: string) => new Date(`${s}T00:00:00Z`);
+
+// المرحلة الثالثة: الحسابات والموازنة والجدول الزمني وخطابات الضمان للمشروع التجريبي
+async function setupFinanceAndPlanning(projectId: string) {
+  const project = await db.project.findUniqueOrThrow({ where: { id: projectId }, include: { boqItems: { include: { costCode: true } } } });
+  if (!(await db.activity.count({ where: { projectId } }))) {
+    await db.activity.createMany({
+      data: project.boqItems.map((i, idx) => ({
+        projectId,
+        code: i.itemNo,
+        name: i.description,
+        startDate: day(PLAN[i.itemNo]?.[0] ?? "2026-09-01"),
+        endDate: day(PLAN[i.itemNo]?.[1] ?? "2027-08-31"),
+        weight: i.quantity * i.rate,
+        boqItemId: i.id,
+        sortOrder: idx,
+      })),
+    });
+  }
+  if (!(await db.costBudget.count({ where: { projectId } }))) {
+    // موازنة تجريبية: 82% من قيمة بنود كل رمز تكلفة، و3% من العقد مصاريف موقع عامة
+    const byCode = new Map<string, number>();
+    for (const i of project.boqItems) if (i.costCodeId) byCode.set(i.costCodeId, (byCode.get(i.costCodeId) ?? 0) + i.quantity * i.rate * 0.82);
+    const g1 = await db.costCode.findUniqueOrThrow({ where: { code: "G1" } });
+    const e1 = await db.costCode.findUniqueOrThrow({ where: { code: "E1" } });
+    byCode.set(g1.id, project.contractValue * 0.03);
+    byCode.set(e1.id, 150_000);
+    await db.costBudget.createMany({ data: [...byCode].map(([costCodeId, amount]) => ({ projectId, costCodeId, amount: Math.round(amount) })) });
+  }
+  if (!(await db.bankGuarantee.count({ where: { projectId } }))) {
+    await db.bankGuarantee.createMany({
+      data: [
+        { projectId, type: "PERFORMANCE", bank: "البنك الأهلي", number: "LG-2026-0147", amount: Math.round(project.contractValue * 0.05), issueDate: day("2026-08-20"), expiryDate: day("2027-09-30") },
+        { projectId, type: "ADVANCE", bank: "البنك الأهلي", number: "LG-2026-0148", amount: project.advanceAmount, issueDate: day("2026-08-20"), expiryDate: day("2026-11-05") },
+      ],
+    });
+  }
+}
+
+async function setupAccounts() {
+  for (const a of CHART) {
+    await db.account.upsert({ where: { code: a.code }, update: { name: a.name, type: a.type, isCash: a.isCash ?? false }, create: { ...a, isCash: a.isCash ?? false } });
+  }
+  // رأس مال افتتاحي تجريبي في البنك
+  await db.$transaction((tx) =>
+    postEntry(tx, {
+      date: day("2026-08-15"),
+      description: "رأس المال الافتتاحي (بيانات تجريبية)",
+      sourceKey: "SEED:CAPITAL",
+      kind: "MANUAL",
+      lines: [
+        { account: ACC.BANK, debit: 1_000_000 },
+        { account: ACC.CAPITAL, credit: 1_000_000 },
+      ],
+    }),
+  );
+}
 
 const BOQ: [string, string, string, number, number, string][] = [
   ["1.01", "حفر للأساسات في أي نوع من التربة", "م3", 2400, 35, "D1"],
@@ -73,7 +149,10 @@ async function main() {
         create: { userId: u.id, projectId: existing.id },
       });
     }
-    console.log("المشروع التجريبي موجود مسبقا، تم تحديث أعضائه");
+    await setupAccounts();
+    await setupFinanceAndPlanning(existing.id);
+    const posted = await syncPostings();
+    console.log(`المشروع التجريبي موجود مسبقا: تم تحديث أعضائه، وترحيل ${posted} قيدا لأحداث سابقة`);
     return;
   }
 
@@ -109,6 +188,8 @@ async function main() {
       },
     },
   });
+  await setupAccounts();
+  await setupFinanceAndPlanning(project.id);
   console.log(`تم إنشاء المشروع التجريبي ${project.code} بقيمة ${contractValue}`);
 }
 

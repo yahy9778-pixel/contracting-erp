@@ -6,6 +6,7 @@ import { PO_APPROVAL_LIMIT } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 import { num, runAction, str } from "@/lib/flash";
 import { parseDay } from "@/lib/format";
+import { postGoodsReceipt } from "@/lib/accounting";
 import { compareQuotes, initialPoStatus, receiptStatus } from "@/lib/procurement";
 
 const base = (projectId: string) => `/projects/${projectId}/procurement`;
@@ -193,7 +194,7 @@ export async function receiveGoods(projectId: string, poId: string, form: FormDa
       const { user } = await requireProjectAccess(projectId, "grn.create");
       const po = await db.purchaseOrder.findFirst({ where: { id: poId, projectId }, include: { lines: { include: { receipts: true } } } });
       if (!po || !["ISSUED", "PARTIAL"].includes(po.status)) throw new Error("لا يمكن الاستلام على هذا الأمر");
-      const lines = [];
+      const lines: { poLineId: string; quantity: number }[] = [];
       for (const l of po.lines) {
         const qty = num(form, `rcv_${l.id}`);
         if (qty < 0) throw new Error("لا يمكن إدخال كمية سالبة");
@@ -203,14 +204,18 @@ export async function receiveGoods(projectId: string, poId: string, form: FormDa
       }
       if (!lines.length) throw new Error("أدخل كمية مستلمة واحدة على الأقل");
       const date = str(form, "date");
-      await db.goodsReceipt.create({
-        data: { orderId: poId, date: parseDay(date || new Date().toISOString().slice(0, 10)), deliveryNote: str(form, "deliveryNote") || null, createdById: user.id, lines: { create: lines } },
-      });
       const received = new Map(lines.map((l) => [l.poLineId, l.quantity]));
       const status = receiptStatus(
         po.lines.map((l) => ({ ordered: l.quantity, received: l.receipts.reduce((s, r) => s + r.quantity, 0) + (received.get(l.id) ?? 0) })),
       );
-      await db.purchaseOrder.update({ where: { id: poId }, data: { status } });
+      // الاستلام يثبت التكلفة على المشروع والمستحق للمورد في نفس المعاملة
+      await db.$transaction(async (tx) => {
+        const grn = await tx.goodsReceipt.create({
+          data: { orderId: poId, date: parseDay(date || new Date().toISOString().slice(0, 10)), deliveryNote: str(form, "deliveryNote") || null, createdById: user.id, lines: { create: lines } },
+        });
+        await tx.purchaseOrder.update({ where: { id: poId }, data: { status } });
+        await postGoodsReceipt(tx, grn.id, user.id);
+      });
       await audit(user.id, "receive", "PurchaseOrder", poId, { lines: lines.length });
     },
     "تم تسجيل الاستلام",

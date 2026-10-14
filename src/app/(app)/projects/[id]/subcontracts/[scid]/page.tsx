@@ -6,6 +6,7 @@ import { billableQuantities } from "@/lib/ipc-service";
 import { fmtDate, fmtMoney, fmtPct, fmtQty, todayStr } from "@/lib/format";
 import { createSubCertificate, deleteSubCertificate, moveSubCertificate } from "@/app/actions/subcontracts";
 import { Flash, StatusBadge } from "@/components/ui";
+import { CashAccountSelect } from "@/components/cash-select";
 import type { SearchParams } from "@/lib/flash";
 
 export default async function SubcontractPage({ params, searchParams }: { params: Promise<{ id: string; scid: string }>; searchParams: SearchParams }) {
@@ -138,8 +139,9 @@ export default async function SubcontractPage({ params, searchParams }: { params
                     </form>
                   )}
                   {c.status === "APPROVED" && can(user.role, "sub.markPaid") && (
-                    <form action={moveSubCertificate.bind(null, id, scid, c.id, "PAID")}>
-                      <button className="btn-secondary">تسجيل الدفع</button>
+                    <form action={moveSubCertificate.bind(null, id, scid, c.id, "PAID")} className="flex gap-2">
+                      <CashAccountSelect />
+                      <button className="btn-secondary whitespace-nowrap">تسجيل الدفع</button>
                     </form>
                   )}
                 </td>

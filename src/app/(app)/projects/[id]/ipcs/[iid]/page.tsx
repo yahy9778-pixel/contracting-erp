@@ -6,6 +6,7 @@ import { fmtDate, fmtMoney, fmtQty } from "@/lib/format";
 import { deleteIpc, moveIpc } from "@/app/actions/ipcs";
 import { Flash, StatusBadge } from "@/components/ui";
 import { PrintButton } from "./print-button";
+import { CashAccountSelect } from "@/components/cash-select";
 import type { SearchParams } from "@/lib/flash";
 
 export default async function IpcPage({ params, searchParams }: { params: Promise<{ id: string; iid: string }>; searchParams: SearchParams }) {
@@ -55,7 +56,11 @@ export default async function IpcPage({ params, searchParams }: { params: Promis
             </form>
           )}
           {ipc.status === "APPROVED" && can(user.role, "ipc.markPaid") && (
-            <form action={moveIpc.bind(null, id, iid, "PAID")}>
+            <form action={moveIpc.bind(null, id, iid, "PAID")} className="flex items-end gap-2">
+              <div>
+                <label>يُودع في</label>
+                <CashAccountSelect />
+              </div>
               <button className="btn">تسجيل التحصيل</button>
             </form>
           )}

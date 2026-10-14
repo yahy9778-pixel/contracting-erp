@@ -7,6 +7,7 @@ import { num, runAction, str } from "@/lib/flash";
 import { parseDay } from "@/lib/format";
 import { calculateIpc, capSubcontractQty } from "@/lib/ipc";
 import { billableQuantities } from "@/lib/ipc-service";
+import { cashAccountCode, postSubCertApproval, postSubCertPayment } from "@/lib/accounting";
 
 const base = (projectId: string) => `/projects/${projectId}/subcontracts`;
 const scPath = (projectId: string, scId: string) => `${base(projectId)}/${scId}`;
@@ -105,7 +106,7 @@ export async function createSubCertificate(projectId: string, scId: string, form
   });
 }
 
-export async function moveSubCertificate(projectId: string, scId: string, certId: string, to: "APPROVED" | "PAID") {
+export async function moveSubCertificate(projectId: string, scId: string, certId: string, to: "APPROVED" | "PAID", form: FormData) {
   await runAction(
     scPath(projectId, scId),
     async () => {
@@ -113,7 +114,12 @@ export async function moveSubCertificate(projectId: string, scId: string, certId
       const cert = await db.subcontractCertificate.findFirst({ where: { id: certId, subcontractId: scId, subcontract: { projectId } } });
       const from = to === "APPROVED" ? "DRAFT" : "APPROVED";
       if (!cert || cert.status !== from) throw new Error("لا يمكن تنفيذ الإجراء على المستخلص في حالته الحالية");
-      await db.subcontractCertificate.update({ where: { id: certId }, data: { status: to } });
+      await db.$transaction(async (tx) => {
+        const now = new Date();
+        await tx.subcontractCertificate.update({ where: { id: certId }, data: { status: to, ...(to === "APPROVED" ? { approvedAt: now } : { paidAt: now }) } });
+        if (to === "APPROVED") await postSubCertApproval(tx, certId, user.id);
+        else await postSubCertPayment(tx, certId, await cashAccountCode(tx, str(form, "cashAccount")), user.id);
+      });
       await audit(user.id, to.toLowerCase(), "SubcontractCertificate", certId);
     },
     to === "APPROVED" ? "تم اعتماد مستخلص الباطن" : "تم تسجيل الدفع",

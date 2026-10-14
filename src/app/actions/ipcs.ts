@@ -6,6 +6,7 @@ import { audit } from "@/lib/audit";
 import { num, runAction, str } from "@/lib/flash";
 import { parseDay } from "@/lib/format";
 import { createIpc } from "@/lib/ipc-service";
+import { cashAccountCode, postIpcApproval, postIpcPayment } from "@/lib/accounting";
 import type { Permission } from "@/lib/permissions";
 
 export async function generateIpc(projectId: string, form: FormData) {
@@ -38,9 +39,20 @@ export async function moveIpc(projectId: string, ipcId: string, to: "SUBMITTED" 
       const ipc = await db.paymentCertificate.findFirst({ where: { id: ipcId, projectId } });
       if (!ipc || ipc.status !== t.from) throw new Error("لا يمكن تنفيذ هذا الإجراء على المستخلص في حالته الحالية");
       const approvedAmount = to === "APPROVED" ? num(form, "approvedAmount", ipc.netPayable) : undefined;
-      await db.paymentCertificate.update({
-        where: { id: ipcId },
-        data: { status: to, ...(approvedAmount !== undefined ? { approvedAmount } : {}), ...(to === "PAID" ? { paidAt: new Date() } : {}) },
+      if (approvedAmount !== undefined && approvedAmount <= 0) throw new Error("المبلغ المعتمد يجب أن يكون أكبر من صفر");
+      // تغيير الحالة والقيد المحاسبي في معاملة واحدة: إما يتمان معا أو لا يتم أي منهما
+      await db.$transaction(async (tx) => {
+        const now = new Date();
+        await tx.paymentCertificate.update({
+          where: { id: ipcId },
+          data: {
+            status: to,
+            ...(approvedAmount !== undefined ? { approvedAmount, approvedAt: now } : {}),
+            ...(to === "PAID" ? { paidAt: now } : {}),
+          },
+        });
+        if (to === "APPROVED") await postIpcApproval(tx, ipcId, user.id);
+        if (to === "PAID") await postIpcPayment(tx, ipcId, await cashAccountCode(tx, str(form, "cashAccount")), user.id);
       });
       await audit(user.id, to.toLowerCase(), "PaymentCertificate", ipcId, approvedAmount !== undefined ? { approvedAmount } : undefined);
     },

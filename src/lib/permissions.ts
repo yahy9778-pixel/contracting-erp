@@ -43,6 +43,14 @@ const MATRIX = {
   "sub.manage": ["OWNER", "PROCUREMENT", "CONTRACTS"],
   "sub.approve": ["OWNER", "PROJECT_MANAGER"],
   "sub.markPaid": ["OWNER", "FINANCE"],
+  // المالية والمحاسبة
+  "finance.view": ["OWNER", "FINANCE"],
+  "finance.post": ["OWNER", "FINANCE"],
+  "expense.create": ["OWNER", "FINANCE", "PROJECT_MANAGER"],
+  "guarantee.manage": ["OWNER", "FINANCE", "CONTRACTS"],
+  // التخطيط وضبط التكاليف
+  "budget.edit": ["OWNER", "PLANNING"],
+  "schedule.edit": ["OWNER", "PLANNING", "PROJECT_MANAGER"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof MATRIX;

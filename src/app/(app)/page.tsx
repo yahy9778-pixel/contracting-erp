@@ -15,7 +15,7 @@ export default async function Dashboard() {
     include: { client: true },
     orderBy: { createdAt: "desc" },
   });
-  const rows = await Promise.all(projects.map(async (p) => ({ p, s: await projectSummary(p.id), a: await projectAlerts(p.id) })));
+  const rows = await Promise.all(projects.map(async (p) => ({ p, s: await projectSummary(p.id), a: await projectAlerts(p.id, { money: showMoney }) })));
 
   return (
     <>

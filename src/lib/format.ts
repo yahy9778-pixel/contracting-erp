@@ -29,7 +29,25 @@ export const STATUS_LABELS: Record<string, string> = {
   PARTIAL: "استلام جزئي",
   RECEIVED: "مستلم بالكامل",
   CANCELLED: "ملغي",
+  RELEASED: "مُفرج عنه",
+  DONE: "مكتمل",
+  LATE: "متأخر عن موعده",
+  BEHIND: "خلف الخطة",
+  ON_TRACK: "حسب الخطة",
+  NOT_STARTED: "لم يبدأ",
+  EXPIRING: "ينتهي قريبا",
+  EXPIRED: "منتهي الصلاحية",
 };
+
+export const GUARANTEE_TYPES: Record<string, string> = {
+  BID: "ضمان ابتدائي",
+  PERFORMANCE: "ضمان حسن التنفيذ",
+  ADVANCE: "ضمان الدفعة المقدمة",
+  RETENTION: "ضمان بدل المحتجز",
+};
+
+// فرق الأيام بين تاريخين
+export const daysBetween = (from: Date, to: Date) => Math.round((to.getTime() - from.getTime()) / 86_400_000);
 
 export const todayStr = () => new Date().toISOString().slice(0, 10);
 

@@ -12,10 +12,12 @@ export default async function ProjectLayout({ children, params }: { children: Re
     { href: "/quality", label: "الجودة" },
     { href: "/technical", label: "المكتب الفني" },
     { href: "/procurement", label: "المشتريات" },
+    { href: "/schedule", label: "التخطيط" },
     ...(can(user.role, "money.view")
       ? [
           { href: "/subcontracts", label: "مقاولو الباطن" },
           { href: "/ipcs", label: "مستخلصات المالك" },
+          { href: "/finance", label: "التكاليف والمالية" },
         ]
       : []),
   ];
