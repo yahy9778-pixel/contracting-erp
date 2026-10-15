@@ -1,0 +1,58 @@
+# النشر على الخادم بعد نجاح CI على main، أو يدويا من تبويب Actions
+# يعمل فقط إذا ضُبط المتغير DEPLOY_ENABLED=true والأسرار DEPLOY_HOST وDEPLOY_USER وDEPLOY_SSH_KEY
+# (Settings → Secrets and variables → Actions). التفاصيل في docs/deploy/README.md
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: إعداد مفتاح SSH
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: نسخة احتياطية ثم تحديث النظام على الخادم
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          APP_DIR: ${{ vars.DEPLOY_PATH || '/opt/contracting-erp' }}
+        run: |
+          ssh -i ~/.ssh/id_deploy "$USER@$HOST" "set -e
+            cd '$APP_DIR'
+            git fetch origin main && git reset --hard origin/main
+            sh scripts/backup-now.sh
+            docker compose up -d --build
+            for i in \$(seq 1 60); do
+              docker compose exec -T app node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\" && exit 0
+              sleep 2
+            done
+            echo 'التطبيق لم يصبح جاهزا' && docker compose logs --tail 100 app && exit 1"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: اختبار التشغيل على الخادم
+        env:
+          BASE_URL: https://${{ vars.DOMAIN }}
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+        run: node scripts/smoke-test.mjs

@@ -5,3 +5,7 @@ prisma/*.db
 prisma/*.db-journal
 next-env.d.ts
 *.tsbuildinfo
+.env.*
+!.env.example
+!.env.production.example
+backups

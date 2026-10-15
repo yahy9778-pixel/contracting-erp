@@ -1,33 +1,11 @@
 // بيانات أولية: رموز التكلفة، مستخدمون تجريبيون، ومشروع تجريبي بجدول كميات
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { CHART, ACC } from "../src/lib/ledger";
+import { ACC } from "../src/lib/ledger";
+import { ensureBaseData } from "./base-data";
 import { postEntry, syncPostings } from "../src/lib/accounting";
 
 const db = new PrismaClient();
-
-const COST_CODES: [string, string, string][] = [
-  ["D1", "أعمال ترابية", "مقاولو الباطن"],
-  ["D2", "أعمال الخوازيق", "مقاولو الباطن"],
-  ["D3", "أعمال الخرسانة", "مقاولو الباطن"],
-  ["D4", "الهياكل المعدنية", "مقاولو الباطن"],
-  ["D5", "التشطيبات", "مقاولو الباطن"],
-  ["D6", "الأعمال الكهربائية", "مقاولو الباطن"],
-  ["D7", "الأعمال الميكانيكية", "مقاولو الباطن"],
-  ["D8", "التيار الخفيف", "مقاولو الباطن"],
-  ["D9", "المرافق تحت الأرض", "مقاولو الباطن"],
-  ["D10", "تنسيق الموقع", "مقاولو الباطن"],
-  ["D11", "الديكور", "مقاولو الباطن"],
-  ["E1", "المواد الخام", "الموردون"],
-  ["E2", "الأدوات", "الموردون"],
-  ["E3", "المعدات", "الموردون"],
-  ["E4", "الإكسسوارات", "الموردون"],
-  ["F1", "مواد الشدة", "الأعمال المؤقتة"],
-  ["F2", "معدات النقل الأفقي", "الأعمال المؤقتة"],
-  ["F3", "معدات النقل الرأسي", "الأعمال المؤقتة"],
-  ["L1", "العمالة المباشرة", "العمالة"],
-  ["G1", "المصاريف العامة للموقع", "مصاريف عامة"],
-];
 
 const USERS = [
   { name: "المالك", email: "owner@company.local", role: "OWNER" },
@@ -153,10 +131,7 @@ async function setupOperations(projectId: string) {
   }
 }
 
-async function setupAccounts() {
-  for (const a of CHART) {
-    await db.account.upsert({ where: { code: a.code }, update: { name: a.name, type: a.type, isCash: a.isCash ?? false }, create: { ...a, isCash: a.isCash ?? false } });
-  }
+async function setupDemoCapital() {
   // رأس مال افتتاحي تجريبي في البنك
   await db.$transaction((tx) =>
     postEntry(tx, {
@@ -188,9 +163,7 @@ const BOQ: [string, string, string, number, number, string][] = [
 ];
 
 async function main() {
-  for (const [code, name, group] of COST_CODES) {
-    await db.costCode.upsert({ where: { code }, update: { name, group }, create: { code, name, group } });
-  }
+  await ensureBaseData(db);
 
   const passwordHash = await bcrypt.hash("Demo@12345", 10);
   const users = [];
@@ -207,7 +180,7 @@ async function main() {
         create: { userId: u.id, projectId: existing.id },
       });
     }
-    await setupAccounts();
+    await setupDemoCapital();
     await setupFinanceAndPlanning(existing.id);
     await setupOperations(existing.id);
     const posted = await syncPostings();
@@ -247,7 +220,7 @@ async function main() {
       },
     },
   });
-  await setupAccounts();
+  await setupDemoCapital();
   await setupFinanceAndPlanning(project.id);
   await setupOperations(project.id);
   console.log(`تم إنشاء المشروع التجريبي ${project.code} بقيمة ${contractValue}`);

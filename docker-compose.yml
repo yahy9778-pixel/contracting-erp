@@ -1,0 +1,67 @@
+# التشغيل الفعلي على خادم واحد: قاعدة البيانات + التطبيق + HTTPS + نسخ احتياطي يومي
+# التشغيل:  docker compose up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: erp
+      POSTGRES_DB: erp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?ضع POSTGRES_PASSWORD في .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp -d erp"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # بدون منفذ منشور: قاعدة البيانات لا تُرى إلا من داخل شبكة الحاويات
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://erp:${POSTGRES_PASSWORD}@db:5432/erp?connection_limit=10
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?ضع DOMAIN في .env}
+      ACME_EMAIL: ${ACME_EMAIL:?ضع ACME_EMAIL في .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGUSER: erp
+      PGDATABASE: erp
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup-loop.sh:/backup-loop.sh:ro
+    entrypoint: ["sh", "/backup-loop.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -1,12 +1,12 @@
 // نموذج بيانات المرحلة الأولى (MVP)
-// للتجربة نستخدم SQLite، وللتشغيل الفعلي غيّر provider إلى "postgresql"
+// قاعدة البيانات PostgreSQL (للتطوير والتشغيل الفعلي). التغييرات على النموذج تتم عبر prisma migrate
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
