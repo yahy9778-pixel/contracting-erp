@@ -2,14 +2,23 @@
   "name": "contracting-erp",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
-    "db:push": "prisma db push",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "setup": "prisma db push && tsx prisma/seed.ts"
+    "db:bootstrap": "tsx prisma/bootstrap.ts",
+    "db:import-sqlite": "tsx scripts/migrate-sqlite-to-postgres.ts",
+    "setup": "prisma migrate deploy && tsx prisma/seed.ts",
+    "smoke": "node scripts/smoke-test.mjs",
+    "loadtest": "node scripts/load-test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",
@@ -17,9 +26,11 @@
     "bcryptjs": "^3.0.2",
     "jose": "^6.1.0",
     "next": "^15.5.4",
+    "prisma": "^6.16.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "server-only": "^0.0.1",
+    "tsx": "^4.23.15",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -28,9 +39,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "postcss": "^8.5.30",
-    "prisma": "^6.16.2",
     "tailwindcss": "^4.1.13",
-    "tsx": "^4.23.15",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }

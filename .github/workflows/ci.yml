@@ -1,0 +1,60 @@
+# فحص كل تعديل: الأنواع، الاختبارات، البناء، وتشغيل فعلي على PostgreSQL مع اختبار التشغيل
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: erp
+          POSTGRES_PASSWORD: erp
+          POSTGRES_DB: erp
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U erp" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://erp:erp@localhost:5432/erp
+      SESSION_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: الهجرات والبيانات التجريبية على PostgreSQL
+        run: npx prisma migrate deploy && npm run db:seed
+      - name: النموذج مطابق للهجرات (لا تغييرات بلا هجرة)
+        run: |
+          PGPASSWORD=erp psql -h localhost -U erp -d erp -c "CREATE DATABASE erp_shadow"
+          npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "postgresql://erp:erp@localhost:5432/erp_shadow" --exit-code
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: اختبار التشغيل
+        run: |
+          npm start > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/api/health && break; sleep 1; done
+          BASE_URL=http://localhost:3000 SMOKE_EMAIL=owner@company.local SMOKE_PASSWORD=Demo@12345 npm run smoke
+      - if: failure()
+        run: cat server.log || true
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: بناء صورة التشغيل
+        run: docker build -t contracting-erp:ci .
