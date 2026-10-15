@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt, runDepartmentAgent, type DepartmentReport } from "@/lib/agents/department-agent";
+import { buildSystemPrompt, DepartmentReport, runDepartmentAgent } from "@/lib/agents/department-agent";
 
 const report: DepartmentReport = {
   headline: "ضمان الدفعة المقدمة ينتهي بعد 22 يوما",
@@ -37,5 +37,12 @@ describe("department agent", () => {
   it("surfaces a refusal as an error", async () => {
     const { client } = fakeClient("refusal");
     await expect(runDepartmentAgent(dept, {}, client)).rejects.toThrow();
+  });
+
+  it("normalizes status and severity values the API does not enforce instead of failing the report", () => {
+    const out = DepartmentReport.parse({ ...report, status: "critical", findings: [{ ...report.findings[0], severity: "عالية" }] });
+    expect(out.status).toBe("CRITICAL");
+    expect(out.findings[0].severity).toBe("MEDIUM");
+    expect(DepartmentReport.parse({ ...report, status: "on track" }).status).toBe("ON_TRACK");
   });
 });

@@ -88,12 +88,50 @@ async function planningData(projectId: string) {
   };
 }
 
+// forecast: الفعلي + باقي الأعمال بسعر الموازنة. forecastAtCurrentRate: لو استمر الصرف بنفس الوتيرة
 async function costData(projectId: string) {
   const [cc, pnl] = await Promise.all([costControl(projectId), projectPnl(projectId)]);
   return {
     pnl: { revenue: pnl.revenue, cost: pnl.cost, margin: pnl.margin },
-    costByCode: cc.rows.map((r) => ({ code: r.code?.code ?? null, name: r.code?.name ?? "بدون رمز", budget: r.budget, committed: r.committed, actual: r.actual, forecast: r.forecast, variance: r.variance })),
+    costByCode: cc.rows.map((r) => ({
+      code: r.code?.code ?? null,
+      name: r.code?.name ?? "بدون رمز",
+      budget: r.budget,
+      committed: r.committed,
+      actual: r.actual,
+      pctComplete: r.pctComplete,
+      earned: r.earned,
+      cpi: r.cpi,
+      forecast: r.forecast,
+      forecastAtCurrentRate: r.forecastAtCurrentRate,
+      variance: r.variance,
+      overBudget: r.overBudget,
+      noBudget: r.noBudget,
+    })),
     totals: cc.totals,
+    overBudget: cc.overBudget.map((r) => r.code?.code),
+  };
+}
+
+// هامش كل رمز للتسعير: قيمة العقد مقابل التكلفة المتوقعة
+async function pricingData(projectId: string) {
+  const cc = await costControl(projectId);
+  return {
+    marginByCode: cc.rows
+      .filter((r) => r.contractValue > 0)
+      .map((r) => ({
+        code: r.code?.code ?? null,
+        name: r.code?.name ?? "بدون رمز",
+        contractValue: r.contractValue,
+        budget: r.budget,
+        pctComplete: r.pctComplete,
+        earnedRevenue: r.executedValue,
+        actual: r.actual,
+        forecast: r.forecast,
+        forecastAtCurrentRate: r.forecastAtCurrentRate,
+        margin: r.margin,
+        marginPct: r.marginPct,
+      })),
   };
 }
 
@@ -220,7 +258,7 @@ async function seniorData(projectId: string) {
   return {
     alerts: alerts.map((a) => `${a.level === "high" ? "عاجل" : "متابعة"}: ${a.text}`),
     schedule: { plannedPct: plan.plannedPct, actualPct: plan.actualPct, spi: plan.spi, lateOrBehind: plan.activities.filter((a) => a.status === "LATE" || a.status === "BEHIND") },
-    finance: { pnl: fin.pnl, projectCash: fin.projectCash, receivable: fin.receivable, payable: r2(fin.payableSuppliers + fin.payableSubcontractors), overBudget: fin.costByCode.filter((c) => c.budget > 0 && c.forecast > c.budget) },
+    finance: { pnl: fin.pnl, projectCash: fin.projectCash, receivable: fin.receivable, payable: r2(fin.payableSuppliers + fin.payableSubcontractors), overBudget: fin.costByCode.filter((c) => c.code !== null && c.overBudget) },
     safety: await safetyData(projectId),
     workforce: {
       count: employees.length,
@@ -261,7 +299,7 @@ export const DEPARTMENTS: Department[] = [
       "تحديد البنود الخاسرة أو ضعيفة الهامش لتصحيح التسعير في العطاءات القادمة",
       "مراجعة هوامش عقود الباطن",
     ],
-    collect: async (id) => ({ ...(await base(id)), ...(await costData(id)), subcontracts: (await contractsData(id)).subcontracts }),
+    collect: async (id) => ({ ...(await base(id)), ...(await costData(id)), ...(await pricingData(id)), subcontracts: (await contractsData(id)).subcontracts }),
   },
   {
     key: "planning",
