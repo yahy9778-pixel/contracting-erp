@@ -3,13 +3,18 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod/v4";
 import { MODEL } from "./model";
 
+// الـ API لا يفرض قيم enum (تصل للنموذج وصفا فقط)، فنطبّع ما يكتبه النموذج بدل إسقاط التقرير كاملا:
+// "high" أو "High " تصبح HIGH، والقيمة غير المعروفة تصبح القيمة الوسطى
+const normalize = (v: unknown) => (typeof v === "string" ? v.trim().toUpperCase().replace(/[\s-]+/g, "_") : v);
+const lenientEnum = <T extends string>(values: readonly [T, ...T[]], fallback: T) => z.preprocess(normalize, z.enum(values).catch(fallback));
+
 // مخرجات وكيل القسم: تقرير متابعة مرتب بالأثر، كل ملاحظة لها دليل من البيانات وإجراء ومسؤول
 export const DepartmentReport = z.object({
   headline: z.string().describe("جملة واحدة: أهم ما يحتاج انتباه القسم الآن"),
-  status: z.enum(["ON_TRACK", "WATCH", "CRITICAL"]),
+  status: lenientEnum(["ON_TRACK", "WATCH", "CRITICAL"], "WATCH"),
   findings: z.array(
     z.object({
-      severity: z.enum(["HIGH", "MEDIUM", "LOW"]),
+      severity: lenientEnum(["HIGH", "MEDIUM", "LOW"], "MEDIUM"),
       title: z.string(),
       evidence: z.string().describe("الأرقام أو السجلات من البيانات المرفقة التي بُنيت عليها الملاحظة"),
       action: z.string().describe("إجراء محدد قابل للتنفيذ"),
@@ -21,7 +26,7 @@ export const DepartmentReport = z.object({
   questions: z.array(z.string()).describe("معلومات ناقصة يحتاجها القسم من الإدارة أو الأقسام الأخرى"),
 });
 
-export type DepartmentReport = z.infer<typeof DepartmentReport>;
+export type DepartmentReport = z.output<typeof DepartmentReport>;
 
 export type AgentBrief = { name: string; duties: string[] };
 
@@ -36,6 +41,7 @@ ${dept.duties.map((d) => `- ${d}`).join("\n")}
 - رتب الملاحظات من الأعلى أثرا على الوقت أو المال أو الجودة أو السلامة.
 - كل إجراء محدد وقابل للتنفيذ، ومنسوب للقسم أو الدور المسؤول عنه.
 - إذا كانت البيانات لا تكفي للحكم، لا تخمن: اكتب ما ينقص في questions.
+- في بيانات التكلفة: pctComplete نسبة الإنجاز لبنود الرمز، وforecast التكلفة المتوقعة = الفعلي + باقي الأعمال بسعر الموازنة، وforecastAtCurrentRate التكلفة لو استمر الصرف بنفس وتيرته، وcpi أقل من 1 يعني صرفا أكبر من الإنجاز. noBudget يعني صرفا على رمز بلا موازنة.
 - أنت تقترح فقط. لا تعتمد ولا ترحل ولا تنفذ أي شيء.
 - اكتب بالعربية، والمصطلحات الفنية الشائعة بالإنجليزية (IPC, NCR, RFI, SPI...).`;
 }

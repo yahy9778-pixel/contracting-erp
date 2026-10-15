@@ -1,12 +1,15 @@
 import "server-only";
 import { db } from "./db";
 import { r2 } from "./ledger";
+import { executedQuantities } from "./ipc-service";
+import { forecastCostCode } from "./cost-forecast";
 
 // الموازنة مقابل الملتزم به والفعلي لكل رمز تكلفة
 // الملتزم: أوامر الشراء غير الملغاة + قيمة عقود الباطن + المصروفات المباشرة
 // الفعلي: ما رُحِّل على حسابات التكاليف (استلام مواد، مستخلصات باطن معتمدة، مصروفات)
+// الإنجاز: من الكميات المنفذة المعتمدة لبنود BOQ المرتبطة بالرمز، بأسعار العقد
 export async function costControl(projectId: string) {
-  const [codes, budgets, actualRows, pos, subLines, expenses] = await Promise.all([
+  const [codes, budgets, actualRows, pos, subLines, expenses, boq, executed] = await Promise.all([
     db.costCode.findMany({ orderBy: { code: "asc" } }),
     db.costBudget.findMany({ where: { projectId } }),
     db.journalLine.groupBy({
@@ -17,6 +20,8 @@ export async function costControl(projectId: string) {
     db.purchaseOrder.groupBy({ by: ["costCodeId"], where: { projectId, status: { not: "CANCELLED" } }, _sum: { total: true } }),
     db.subcontractLine.findMany({ where: { subcontract: { projectId } }, include: { boqItem: true } }),
     db.expense.groupBy({ by: ["costCodeId"], where: { projectId }, _sum: { amount: true } }),
+    db.boqItem.findMany({ where: { projectId } }),
+    executedQuantities(projectId),
   ]);
   const budget = new Map(budgets.map((b) => [b.costCodeId as string | null, b.amount]));
   const actual = new Map(actualRows.map((r) => [r.costCodeId, (r._sum.debit ?? 0) - (r._sum.credit ?? 0)]));
@@ -25,6 +30,13 @@ export async function costControl(projectId: string) {
   for (const p of pos) add(p.costCodeId, p._sum.total ?? 0);
   for (const l of subLines) add(l.boqItem.costCodeId, l.quantity * l.rate);
   for (const e of expenses) add(e.costCodeId, e._sum.amount ?? 0);
+  const contract = new Map<string | null, { value: number; executed: number }>();
+  for (const i of boq) {
+    const v = contract.get(i.costCodeId) ?? { value: 0, executed: 0 };
+    v.value += i.quantity * i.rate;
+    v.executed += Math.min(i.quantity, executed.get(i.id) ?? 0) * i.rate;
+    contract.set(i.costCodeId, v);
+  }
 
   const keys: (string | null)[] = [...codes.map((c) => c.id), null];
   const rows = keys
@@ -33,16 +45,16 @@ export async function costControl(projectId: string) {
       const b = budget.get(id) ?? 0;
       const a = r2(actual.get(id) ?? 0);
       const c = r2(committed.get(id) ?? 0);
-      // التكلفة المتوقعة عند الانتهاء: الأكبر من الملتزم والفعلي، ولا تقل عن الموازنة ما لم يكتمل البند
-      const forecast = Math.max(c, a);
-      return { id, code, budget: b, committed: c, actual: a, forecast, variance: r2(b - forecast) };
+      const k = contract.get(id) ?? { value: 0, executed: 0 };
+      const f = forecastCostCode({ budget: b, committed: c, actual: a, contractValue: k.value, executedValue: k.executed });
+      return { id, code, budget: b, committed: c, actual: a, contractValue: r2(k.value), executedValue: r2(k.executed), ...f };
     })
-    .filter((r) => r.budget || r.committed || r.actual);
+    .filter((r) => r.budget || r.committed || r.actual || r.contractValue);
   const totals = rows.reduce(
     (t, r) => ({ budget: t.budget + r.budget, committed: t.committed + r.committed, actual: t.actual + r.actual, forecast: t.forecast + r.forecast }),
     { budget: 0, committed: 0, actual: 0, forecast: 0 },
   );
-  return { rows, totals, overBudget: rows.filter((r) => r.budget > 0 && r.forecast > r.budget + 0.005) };
+  return { rows, totals, overBudget: rows.filter((r) => r.id !== null && r.overBudget) };
 }
 
 // قائمة الدخل للمشروع من القيود

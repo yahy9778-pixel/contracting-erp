@@ -5,6 +5,7 @@ import { billableQuantities } from "./ipc-service";
 import { parseDay, todayStr } from "./format";
 import { GUARANTEE_WARNING_DAYS } from "./guarantees";
 import { costControl } from "./cost-control";
+import { stockBelowMin } from "./stock-levels";
 import { projectSchedule } from "./schedule-service";
 import { serviceStatus } from "./operations";
 
@@ -37,11 +38,10 @@ export async function projectAlerts(projectId: string, opts: { role?: string } =
     costControl(projectId),
     projectSchedule(projectId, today, { curve: false }),
   ]);
-  const [equipment, idsExpiring, stockItems, stockSums] = await Promise.all([
+  const [equipment, idsExpiring, stock] = await Promise.all([
     db.equipment.findMany({ where: { projectId } }),
     db.employee.count({ where: { projectId, active: true, idExpiry: { lte: warnBy } } }),
-    db.stockItem.findMany({ where: { minQty: { gt: 0 } } }),
-    db.stockMove.groupBy({ by: ["itemId"], _sum: { quantity: true } }),
+    stockBelowMin(projectId),
   ]);
   const [openLti, overdueObs, openHighObs] = await Promise.all([
     db.safetyIncident.count({ where: { projectId, status: "OPEN", kind: "LOST_TIME" } }),
@@ -50,7 +50,7 @@ export async function projectAlerts(projectId: string, opts: { role?: string } =
   ]);
   const serviceDue = equipment.filter((e) => serviceStatus(e.meterHours, e.lastServiceAt, e.serviceInterval).due).length;
   const inWorkshop = equipment.filter((e) => e.status === "MAINTENANCE").length;
-  const lowStock = stockItems.filter((i) => (stockSums.find((x) => x.itemId === i.id)?._sum.quantity ?? 0) < i.minQty).length;
+  const lowStock = stock.items.length;
   const lateActs = sched.rows.filter((r) => r.status === "LATE").length;
   const behindActs = sched.rows.filter((r) => r.status === "BEHIND").length;
   const uninspected = q.requireInspection ? [...q.reported].filter(([id, qty]) => qty - (q.inspected.get(id) ?? 0) > 1e-9).length : 0;
@@ -68,7 +68,7 @@ export async function projectAlerts(projectId: string, opts: { role?: string } =
   add(serviceDue, "high", `${serviceDue} معدة في الموقع تجاوزت موعد صيانتها الوقائية`, "/equipment", "equipment.view");
   add(idsExpiring, "high", `${idsExpiring} عامل أو موظف في الموقع تنتهي إقامته خلال 30 يوما`, "/hr", "hr.view");
   add(inWorkshop, "medium", `${inWorkshop} معدة من معدات الموقع في الورشة`, "/equipment", "equipment.view");
-  add(lowStock, "medium", `${lowStock} صنف في المستودعات تحت حد إعادة الطلب`, "/stores", "store.view");
+  add(lowStock, "medium", `${lowStock} صنف في مستودع المشروع تحت حد إعادة الطلب`, "/stores", "store.view");
   add(overdueNcrs, "high", `${overdueNcrs} تقرير عدم مطابقة تجاوز موعد إغلاقه`, `${p}/quality`);
   add(lateSubs, "high", `${lateSubs} Submittal تأخر رد الاستشاري عليه`, `${p}/technical`);
   add(lateRfis, "high", `${lateRfis} استفسار فني تأخر الرد عليه`, `${p}/technical`);

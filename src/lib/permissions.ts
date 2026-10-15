@@ -73,7 +73,7 @@ const MATRIX = {
   // سجل التدقيق
   "audit.view": ["OWNER"],
   // وكلاء الأقسام
-  "agents.view": ["OWNER", "PROJECT_MANAGER", "PLANNING", "FINANCE", "PROCUREMENT", "QUALITY", "CONTRACTS", "TECHNICAL", "STOREKEEPER", "EQUIPMENT", "SAFETY"],
+  "agents.view": ["OWNER", "PROJECT_MANAGER", "PLANNING", "FINANCE", "PROCUREMENT", "QUALITY", "CONTRACTS", "TECHNICAL", "STOREKEEPER", "EQUIPMENT", "SAFETY", "HR"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof MATRIX;

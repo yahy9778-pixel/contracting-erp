@@ -99,7 +99,7 @@ export default async function ProjectFinancePage({ params, searchParams }: { par
               {codes.map((c) => {
                 const r = budgetById.get(c.id);
                 if (!r && !canBudget) return null;
-                const over = r && r.budget > 0 && r.forecast > r.budget + 0.005;
+                const over = r?.overBudget;
                 return (
                   <tr key={c.id} className={over ? "bg-red-50" : ""}>
                     <td>
