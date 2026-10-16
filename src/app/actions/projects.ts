@@ -46,3 +46,22 @@ export async function createProject(form: FormData) {
     return `/projects/${project.id}/boq?notice=${encodeURIComponent("تم إنشاء المشروع، أضف الآن جدول الكميات")}`;
   });
 }
+
+const PROJECT_STATUSES = ["ACTIVE", "ON_HOLD", "COMPLETED"];
+
+export async function updateProjectStatus(projectId: string, form: FormData) {
+  await runAction(
+    `/projects/${projectId}`,
+    async () => {
+      const user = await requirePermission("projects.manage");
+      const status = str(form, "status");
+      if (!PROJECT_STATUSES.includes(status)) throw new Error("حالة المشروع غير صحيحة");
+      const project = await db.project.findUnique({ where: { id: projectId } });
+      if (!project) throw new Error("المشروع غير موجود");
+      if (project.status === status) throw new Error("المشروع على هذه الحالة أصلا");
+      await db.project.update({ where: { id: projectId }, data: { status } });
+      await audit(user.id, "update_status", "Project", projectId, { from: project.status, to: status });
+    },
+    "تم تحديث حالة المشروع",
+  );
+}
