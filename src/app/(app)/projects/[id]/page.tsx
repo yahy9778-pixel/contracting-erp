@@ -4,11 +4,14 @@ import { can } from "@/lib/permissions";
 import { projectSummary } from "@/lib/metrics";
 import { projectAlerts } from "@/lib/alerts";
 import { db } from "@/lib/db";
-import { fmtDate, fmtMoney, fmtPct } from "@/lib/format";
-import { Stat, StatusBadge } from "@/components/ui";
+import { fmtDate, fmtMoney, fmtPct, statusLabel } from "@/lib/format";
+import { Flash, Stat, StatusBadge } from "@/components/ui";
+import { updateProjectStatus } from "@/app/actions/projects";
+import type { SearchParams } from "@/lib/flash";
 
-export default async function ProjectOverview({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProjectOverview({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: SearchParams }) {
   const { id } = await params;
+  const { error, notice } = await searchParams;
   const { user, project } = await requireProjectAccess(id);
   const showMoney = can(user.role, "money.view");
   const [s, alerts] = await Promise.all([projectSummary(id), projectAlerts(id, { role: user.role })]);
@@ -22,6 +25,7 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
 
   return (
     <div className="space-y-6">
+      <Flash error={error} notice={notice} />
       <div className="card">
         <h2 className="mb-3">ما يحتاج متابعة</h2>
         {alerts.length === 0 ? (
@@ -78,6 +82,22 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
               </>
             )}
           </dl>
+          <div className="mt-4 flex items-center gap-3 border-t border-slate-200 pt-3 text-sm">
+            <span className="text-slate-500">حالة المشروع</span>
+            <StatusBadge status={project.status} />
+            {can(user.role, "projects.manage") && (
+              <form action={updateProjectStatus.bind(null, id)} className="mr-auto flex items-center gap-2">
+                <select name="status" defaultValue={project.status} className="w-auto">
+                  {["ACTIVE", "ON_HOLD", "COMPLETED"].map((x) => (
+                    <option key={x} value={x}>
+                      {statusLabel(x)}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn-secondary whitespace-nowrap">تحديث الحالة</button>
+              </form>
+            )}
+          </div>
         </div>
         <div className="card">
           <div className="mb-3 flex items-center justify-between">
